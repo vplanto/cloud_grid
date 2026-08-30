@@ -124,6 +124,42 @@
         }
       });
 
+      // Трансформація GitHub Alert блоків (> [!NOTE], > [!IMPORTANT], тощо)
+      const alertConfigs = {
+        'NOTE': { class: 'markdown-alert-note', title: 'Note', icon: '<svg class="octicon octicon-info" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" style="display:inline-block;vertical-align:text-bottom;margin-right:8px;"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>' },
+        'TIP': { class: 'markdown-alert-tip', title: 'Tip', icon: '<svg class="octicon octicon-light-bulb" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" style="display:inline-block;vertical-align:text-bottom;margin-right:8px;"><path d="M8 1.5c-2.363 0-4 1.69-4 3.75 0 .984.424 1.625.984 2.304l.214.253c.223.264.47.556.673.868.312.48.529 1.01.616 1.575h3.026c.087-.565.304-1.095.616-1.575.203-.312.45-.604.673-.868l.214-.253c.56-.679.984-1.32.984-2.304 0-2.06-1.637-3.75-4-3.75ZM5.75 12h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM6 14.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z"></path></svg>' },
+        'IMPORTANT': { class: 'markdown-alert-important', title: 'Important', icon: '<svg class="octicon octicon-report" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" style="display:inline-block;vertical-align:text-bottom;margin-right:8px;"><path d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v9.5A1.75 1.75 0 0 1 14.25 13H11l-2.5 2.5a.75.75 0 0 1-1 0L5 13H1.75A1.75 1.75 0 0 1 0 11.25Zm1.75-.25a.25.25 0 0 0-.25.25v9.5c0 .138.112.25.25.25h3.5a.75.75 0 0 1 .53.22L8 14.44l2.47-2.47a.75.75 0 0 1 .53-.22h3.25a.25.25 0 0 0 .25-.25v-9.5a.25.25 0 0 0-.25-.25ZM8 3.5a.75.75 0 0 1 .75.75v2.5a.75.75 0 0 1-1.5 0v-2.5A.75.75 0 0 1 8 3.5ZM8 9a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>' },
+        'WARNING': { class: 'markdown-alert-warning', title: 'Warning', icon: '<svg class="octicon octicon-alert" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" style="display:inline-block;vertical-align:text-bottom;margin-right:8px;"><path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path></svg>' },
+        'CAUTION': { class: 'markdown-alert-caution', title: 'Caution', icon: '<svg class="octicon octicon-stop" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" style="display:inline-block;vertical-align:text-bottom;margin-right:8px;"><path d="M4.47.22A.749.749 0 0 1 5 0h6c.199 0 .389.079.53.22l4.25 4.25c.141.141.22.331.22.53v6c0 .199-.079.389-.22.53l-4.25 4.25a.749.749 0 0 1-.53.22H5a.749.749 0 0 1-.53-.22L.22 11.53A.749.749 0 0 1 0 11V5c0-.199.079-.389.22-.53Zm.84 1.28L1.5 5.31v5.38l3.81 3.81h5.38l3.81-3.81V5.31L10.69 1.5ZM8 4a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 8 4Zm0 6a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z"></path></svg>' }
+      };
+
+      document.querySelectorAll('blockquote').forEach((bq) => {
+        const firstP = bq.querySelector('p');
+        if (!firstP) return;
+        const match = firstP.innerHTML.match(/^\[\!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\](?:\s*<br\s*\/?>)?\s*/i);
+        if (match) {
+          const type = match[1].toUpperCase();
+          const config = alertConfigs[type];
+          if (config) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `markdown-alert ${config.class}`;
+            
+            const titleP = document.createElement('p');
+            titleP.className = 'markdown-alert-title';
+            titleP.innerHTML = `${config.icon}${config.title}`;
+            alertDiv.appendChild(titleP);
+
+            firstP.innerHTML = firstP.innerHTML.replace(/^\[\!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\](?:\s*<br\s*\/?>)?\s*/i, '');
+            
+            while (bq.firstChild) {
+              alertDiv.appendChild(bq.firstChild);
+            }
+            
+            bq.parentNode.replaceChild(alertDiv, bq);
+          }
+        }
+      });
+
       // Запускаємо рендер
       mermaid.run();
     });
