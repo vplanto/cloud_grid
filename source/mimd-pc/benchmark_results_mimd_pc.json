@@ -1,0 +1,18 @@
+{
+  "architecture": "MIMD_PC",
+  "cpu_workers": 8,
+  "fuel_mass": 50.0,
+  "initial_fast": 350000,
+  "initial_slow": 150000,
+  "total_steps_executed": 30,
+  "total_fissions": 600220,
+  "total_absorbed": 1015292,
+  "total_escaped": 0,
+  "final_active_neutrons": 234917,
+  "final_status": "STABLE_RUN",
+  "metrics": {
+    "total_execution_time_sec": 28.2004,
+    "avg_step_time_ms": 939.95,
+    "throughput_particles_per_sec": 86901.2
+  }
+}

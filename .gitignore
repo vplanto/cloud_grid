@@ -1,0 +1,16 @@
+# Ignore temporary directory and agents configuration
+tmp/
+.agents/
+
+# Python generated files
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+
+# OS and IDE files
+.DS_Store
+.idea/
+.vscode/
