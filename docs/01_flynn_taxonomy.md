@@ -71,10 +71,10 @@ quadrantChart
     title Таксономія Фліна
     x-axis Single Instruction --> Multiple Instruction
     y-axis Single Data --> Multiple Data
-    quadrant-1 MIMD (Багатоядерні CPU, Кластери, Мейнфрейми)
-    quadrant-2 SIMD (Vector Units, GPUs, Tensor Cores)
-    quadrant-3 SISD (Класична машина фон Неймана)
-    quadrant-4 MISD (Конвеєри, Редудантні мажоритарні системи)
+    quadrant-1 "MIMD (Багатоядерні CPU, Кластери, Мейнфрейми)"
+    quadrant-2 "SIMD (Vector Units, GPUs, Tensor Cores)"
+    quadrant-3 "SISD (Класична машина фон Неймана)"
+    quadrant-4 "MISD (Конвеєри, Редудантні мажоритарні системи)"
 ```
 
 ---
