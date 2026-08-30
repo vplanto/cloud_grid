@@ -82,39 +82,46 @@ graph LR
 
 ```mermaid
 flowchart TD
-    Start["Вхідний масив нейтронів (Chunk)"] --> Loop["Для кожного нейтрона i"]
-    Loop --> Move["Оновлення координат:<br>nx = x + vx, ny = y + vy"]
-    Move --> EscapeCheck{"Вихід за межі зони?<br>sqrt(nx² + ny²) >= R - 15"}
+    Start["Вхідний масив нейтронів (Chunk)"] --> Loop["Для кожного нейтрона (i = 1..N)"]
+    Loop --> Move["1. Оновлення координат:<br>nx = x + vx, ny = y + vy"]
+    Move --> EscapeCheck{"2. Виліт за межі зони?<br>sqrt(nx² + ny²) ≥ R"}
     
-    EscapeCheck -->|"Так"| Escaped["Нейтрон вилетів (escaped + 1)"]
-    EscapeCheck -->|"Ні"| MC_Block
+    EscapeCheck -->|"Так"| Escaped["Виліт з реактора<br>(escaped + 1)"]
+    EscapeCheck -->|"Ні (у зоні)"| EventRoll
 
-    subgraph MC_Block ["🎲 МЕТОД МОНТЕ-КАРЛО (Статистичні випробування)"]
-        EventRoll{"Розіграш ймовірностей випадкових подій<br>генератором r ~ Uniform(0, 1)"}
+    subgraph MC_Block ["🎲 СИМУЛЯЦІЯ МОНТЕ-КАРЛО (Взаємодія)"]
+        direction TB
+        EventRoll{"3. Розіграш події<br>(r ~ Uniform)"}
+        
+        EventRoll -->|"r < σ_f"| Fission["Ділення ядра:<br>fissions + 1,<br>+2..3 нейтрони"]
+        EventRoll -->|"σ_f ≤ r < σ_f + σ_a"| Absorb["Поглинання:<br>absorbed + 1"]
+        EventRoll -->|"σ_f + σ_a ≤ r < σ_t"| Scatter["Розсіювання:<br>зміна кута θ"]
+        EventRoll -->|"r ≥ σ_t"| FreeTravel["Вільний пробіг:<br>без взаємодії"]
     end
-
-    EventRoll -->|"r < σ_f (Fission)"| Fission["Ділення ядра:<br>fissions + 1,<br>народження 2..3 нових нейтронів"]
-    EventRoll -->|"σ_f <= r < σ_f + σ_a"| Absorb["Поглинання:<br>absorbed + 1"]
-    EventRoll -->|"σ_f + σ_a <= r < ... "| Scatter["Розсіювання (Scatter):<br>зміна кута θ,<br>сповільнення fast -> slow"]
-    EventRoll -->|"Вільний пробіг"| FreeTravel["Вільний політ без взаємодії"]
 
     Fission --> Collect["Збір виживших нейтронів"]
     Scatter --> Collect
     FreeTravel --> Collect
 
-    Collect --> Next["Наступний нейтрон"]
-    Escaped --> Next
+    Collect --> Next["Перехід до наступного нейтрона"]
     Absorb --> Next
+    Escaped --> Next
 
-    Next --> Loop
-    Loop -->|"Оброблено всі нейтрони"| End["Повернення результату воркера:<br>{survived, fissions, absorbed, escaped}"]
+    Next -.->|"Наступна ітерація"| Loop
+    Loop -->|"Усі нейтрони оброблено"| End["Результат воркера:<br>{survived, fissions, absorbed, escaped}"]
 
-    style MC_Block fill:#0f172a,color:#f59e0b,stroke:#f59e0b,stroke-width:3px,stroke-dasharray: 5 5
-    style EventRoll fill:#7c2d12,color:#fff,stroke:#f97316,stroke-width:3px
+    style MC_Block fill:#0f172a,color:#38bdf8,stroke:#0284c7,stroke-width:2px,stroke-dasharray: 4 4
     style Start fill:#1e293b,color:#fff,stroke:#38bdf8,stroke-width:2px
+    style Move fill:#1e293b,color:#fff,stroke:#64748b,stroke-width:1px
+    style EscapeCheck fill:#451a03,color:#fff,stroke:#f97316,stroke-width:2px
+    style EventRoll fill:#7c2d12,color:#fff,stroke:#ea580c,stroke-width:2px
     style Fission fill:#7f1d1d,color:#fff,stroke:#f87171,stroke-width:2px
     style Absorb fill:#4c1d95,color:#fff,stroke:#a78bfa,stroke-width:2px
     style Scatter fill:#064e3b,color:#fff,stroke:#34d399,stroke-width:2px
+    style FreeTravel fill:#1e1b4b,color:#fff,stroke:#818cf8,stroke-width:2px
+    style Escaped fill:#312e81,color:#fff,stroke:#818cf8,stroke-width:1px
+    style Collect fill:#0f766e,color:#fff,stroke:#14b8a6,stroke-width:2px
+    style Next fill:#334155,color:#fff,stroke:#94a3b8,stroke-width:1px
     style End fill:#0284c7,color:#fff,stroke:#38bdf8,stroke-width:2px
 ```
 
