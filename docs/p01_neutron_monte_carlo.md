@@ -12,7 +12,7 @@
 
 ## 2. Постановка задачі
 
-Повна математична та фізична постановка задачі переносу та ділення нейтронів методом Монте-Карло доступна у документі **[Постановка задачі (source/README.md)](../source/README.md)**.
+Повна математична та фізична постановка задачі переносу та ділення нейтронів методом Монте-Карло доступна у документі **[Постановка задачі (source/README.md)](https://github.com/vplanto/cloud_grid/blob/main/source/README.md)**.
 
 ### 2.1. Ймовірнісний граф станів нейтрона
 Схема ймовірностей для кожного кроку переносу нейтронів:
@@ -73,7 +73,7 @@ graph LR
 
 ## 3. Вихідний код та архітектура MIMD
 
-Готовий реалізований Python-проєкт розміщено в каталозі [`source/mimd-pc/app.py`](../source/mimd-pc/app.py).
+Готовий реалізований Python-проєкт розміщено в каталозі [`source/mimd-pc/app.py`](https://github.com/vplanto/cloud_grid/blob/main/source/mimd-pc/app.py).
 
 ### Архітектура системи:
 1. **Обчислювальне ядро (`update_neutrons_chunk`):** Чиста безстанова функція (Stateless), яка виконується в окремих воркер-процесах і симулює перенос та взаємодію масиву нейтронів на кожному тику.
@@ -235,7 +235,7 @@ python3 source/mimd-pc/app.py --headless --steps 30 --out source/mimd-pc/benchma
 ### Завдання 2. Headless-бенчмарк та фіксація результатів для порівняння
 1. Запустіть Headless-бенчмарк на 30 кроків:
    `python3 source/mimd-pc/app.py --headless --steps 30`
-2. Перевірте згенерований файл [`source/mimd-pc/benchmark_results_mimd_pc.json`](../source/mimd-pc/benchmark_results_mimd_pc.json).
+2. Перевірте згенерований файл [`source/mimd-pc/benchmark_results_mimd_pc.json`](https://github.com/vplanto/cloud_grid/blob/main/source/mimd-pc/benchmark_results_mimd_pc.json).
 3. Занотуйте підсумкові метрики для майбутнього порівняльного аналізу з GPU/Cloud архітектурами:
    - Загальний час виконання $T_{\text{total}}$ (сек);
    - Середній час обчислення одного тику $T_{\text{step}}$ (мс);
