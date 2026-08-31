@@ -1,16 +1,43 @@
-# Ignore temporary directory and agents configuration
+# Temporary / local tooling
 tmp/
 .agents/
 
-# Python generated files
+# Python
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
+*.so
+.Python
 .pytest_cache/
-.venv/
-venv/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.eggs/
+dist/
+build/
+pip-wheel-metadata/
 
-# OS and IDE files
+# Virtual environments
+.venv/
+.venv_pg/
+venv/
+env/
+
+# PowerGraph / local datasets (large .mat — keep outside git)
+data/
+dataset/
+*.mat
+
+# Benchmark outputs (regenerated locally)
+source/mimd-pc/benchmark_results_*.json
+source/grid-mimd/benchmark_results_*.json
+
+# OS and IDE
 .DS_Store
+Thumbs.db
 .idea/
 .vscode/
+*.swp
+*.swo
+*~

@@ -6,7 +6,7 @@
 
 ## 1. Мета роботи
 
-Ознайомитися з практичною реалізацією паралельних обчислень за методом Монте-Карло на багатоядерних персональних комп'ютерах (архітектура **MIMD**). Навчитися розпаралелювати обчислювально місткі задачі за допомогою модуля `multiprocessing` у Python та будувати веб-інтерфейс для візуалізації траєкторій у браузері.
+Ознайомитися з практичною реалізацією паралельних обчислень за методом Монте-Карло на багатоядерних персональних комп'ютерах (архітектура **MIMD**). Навчитися розпаралелювати обчислювально місткі задачі за допомогою модуля `multiprocessing` у Python. Візуалізація траєкторій у браузері — **допоміжна** задача: простий веб-інтерфейс для перевірки результатів симуляції, а не головна мета роботи.
 
 ---
 
@@ -75,10 +75,99 @@ graph LR
 
 Готовий реалізований Python-проєкт розміщено в каталозі [`source/mimd-pc/app.py`](https://github.com/vplanto/cloud_grid/blob/main/source/mimd-pc/app.py).
 
-### Архітектура системи:
-1. **Обчислювальне ядро (`update_neutrons_chunk`):** Виконується в окремих воркер-процесах і симулює перенос та взаємодію масиву нейтронів на кожному тику.
+Файл — один модуль, який об'єднує **обчислювальне ядро**, **HTTP-сервер** і **headless-бенчмарк**. Нижче — карта файлу: у якому порядку йдуть блоки, які методи є і хто їх викликає. Без фрагментів коду — лише структура.
 
-#### Схема алгоритму обчислювального ядра (`update_neutrons_chunk`):
+### 3.1. Блоки файлу (зверху вниз)
+
+| № | Блок у `app.py` | Призначення |
+| :--- | :--- | :--- |
+| 1 | `import …` | Стандартна бібліотека: `argparse`, `json`, `multiprocessing`, `HTTPServer` |
+| 2 | `class ReactorSimulationEngine` | Стан реактора та один тик симуляції (`step`) |
+| 3 | `def update_neutrons_chunk` | Обчислення Монте-Карло для одного шматка масиву нейтронів (воркер) |
+| 4 | `engine = ReactorSimulationEngine()` | Глобальний екземпляр двигуна — спільний для веб-режиму |
+| 5 | `HTML_PAGE = """…"""` | Вбудована HTML-сторінка з CSS, Canvas і JavaScript (dashboard) |
+| 6 | `class ReactorHandler` | HTTP-обробник: `GET /` і `POST /api/*` |
+| 7 | `def run_headless_benchmark` | Консольний прогін без браузера + запис JSON |
+| 8 | `def main` | Точка розгалуження: веб-сервер або `--headless` |
+| 9 | `if __name__ == "__main__"` | Запуск `main()` при прямому виклику скрипта |
+
+### 3.2. Методи Python і місця виклику
+
+#### `ReactorSimulationEngine`
+
+| Метод | Що робить | Хто викликає |
+| :--- | :--- | :--- |
+| `__init__()` | Створює двигун із дефолтними параметрами (паливо 50%, 350k fast + 150k slow, `num_workers = cpu_count()`) | `engine = ReactorSimulationEngine()` при завантаженні модуля |
+| `reset_params(params)` | Скидає лічильники, перегенеровує початковий масив `self.neutrons` за `fuel_mass`, `n_fast`, `n_slow`, `num_workers` | `__init__()`; `ReactorHandler.do_POST()` → `POST /api/reset`; `run_headless_benchmark()` на старті бенчмарку |
+| `get_state()` | Повертає знімок стану **без** обчислення тику (статус, k, вибірка до 750 нейтронів для Canvas) | `step()` — якщо активних нейтронів 0 або > 3.5M (ранній вихід) |
+| `step()` | Один тик: шардить `self.neutrons`, запускає `Pool.map(update_neutrons_chunk, …)`, зливає результати, рахує `k_factor` і `status` | `ReactorHandler.do_POST()` → `POST /api/step`; цикл у `run_headless_benchmark()` |
+
+#### `update_neutrons_chunk` (функція модуля, не метод класу)
+
+| Функція | Що робить | Хто викликає |
+| :--- | :--- | :--- |
+| `update_neutrons_chunk(args)` | Для кожного нейтрона в chunk: рух → виліт / ділення / поглинання / розсіювання. Повертає `{survived, fissions, absorbed, escaped, new_born}` | `ReactorSimulationEngine.step()` через `multiprocessing.Pool.map(...)` — по одному виклику на кожен CPU-воркер і chunk |
+
+#### `ReactorHandler` (HTTP)
+
+| Метод | Що робить | Хто викликає |
+| :--- | :--- | :--- |
+| `do_GET()` | `GET /` або `/index.html` → віддає `HTML_PAGE` | Браузер при відкритті `http://localhost:8080/` |
+| `do_POST()` | Маршрутизація: `/api/reset` → `engine.reset_params()`; `/api/step` → `engine.step()` → JSON у відповідь | JavaScript у `HTML_PAGE`: `fetch('/api/reset')` з `applyParams()`, `fetch('/api/step')` з `stepSimulation()` |
+
+#### Точка входу та бенчмарк
+
+| Функція | Що робить | Хто викликає |
+| :--- | :--- | :--- |
+| `run_headless_benchmark(params, max_steps, output_file)` | `reset_params` → цикл `step()` до `max_steps` або термінального статусу → друк метрик → `benchmark_results_mimd_pc.json` | `main()` при прапорці `--headless` |
+| `main()` | Розбирає CLI (`--headless`, `--fuel`, `--fast`, `--slow`, `--steps`, `--workers`, `--port`, `--out`); або бенчмарк, або `HTTPServer.serve_forever()` | `if __name__ == "__main__"` |
+
+### 3.3. JavaScript у `HTML_PAGE` (клієнтська частина)
+
+Вбудований у рядок `HTML_PAGE`, не окремий файл:
+
+| Функція | Що робить | Хто викликає |
+| :--- | :--- | :--- |
+| `drawReactorCore()` | Малює коло активної зони на Canvas | Завантаження сторінки; після кожного `stepSimulation()` і `applyParams()` |
+| `stepSimulation()` | `POST /api/step` → оновлює метрики й точки нейтронів на Canvas | `toggleRun()` (кожні 250 ms); `applyParams()` після reset |
+| `toggleRun()` | Старт/пауза `setInterval(stepSimulation, 250)` | Кнопка «Запустити неперервно» |
+| `applyParams(params)` | `POST /api/reset` з JSON-параметрами → один крок симуляції | `loadPreset('explosion' \| 'control' \| 'extinction')` |
+| `loadPreset(name)` | Виставляє слайдери пресету й викликає `applyParams()` | Кнопки 💥 / 🔋 / ❄️ на dashboard |
+
+### 3.4. Граф викликів (два режими запуску)
+
+```mermaid
+flowchart TD
+    subgraph Entry ["Точка входу"]
+        CLI["python3 app.py"] --> Main["main()"]
+        Main -->|"--headless"| Bench["run_headless_benchmark()"]
+        Main -->|"за замовчуванням"| HTTP["HTTPServer + ReactorHandler"]
+    end
+
+    subgraph Headless ["Headless-режим"]
+        Bench --> RP1["engine.reset_params()"]
+        RP1 --> Loop["цикл step()"]
+        Loop --> StepH["engine.step()"]
+        StepH --> MapH["Pool.map(update_neutrons_chunk)"]
+        Loop --> JSON["запис benchmark_results_*.json"]
+    end
+
+    subgraph Web ["Веб-режим"]
+        HTTP --> GET["do_GET() → HTML_PAGE"]
+        HTTP --> POST["do_POST()"]
+        POST -->|"POST /api/reset"| RP2["engine.reset_params()"]
+        POST -->|"POST /api/step"| StepW["engine.step()"]
+        StepW --> MapW["Pool.map(update_neutrons_chunk)"]
+        GET --> Browser["браузер: loadPreset → applyParams → stepSimulation"]
+        Browser --> POST
+    end
+```
+
+### 3.5. Обчислювальне ядро та MIMD-шар
+
+Нижче — деталізація саме обчислювального контуру (те, що відбувається всередині `step()` → `update_neutrons_chunk`).
+
+#### Схема алгоритму `update_neutrons_chunk`
 
 ```mermaid
 flowchart TD
@@ -125,9 +214,9 @@ flowchart TD
     style End fill:#0284c7,color:#fff,stroke:#38bdf8,stroke-width:2px
 ```
 
-2. **Паралельний пул (`multiprocessing.Pool`):** Розподіляє масив початкових нейтронів між ядрами CPU (MIMD-обчислення).
+2. **Паралельний пул (`multiprocessing.Pool`):** Усередині `ReactorSimulationEngine.step()` — шардинг масиву та `pool.map(update_neutrons_chunk, task_args)`.
 
-#### Схема паралельного розподілу задач MIMD (`multiprocessing.Pool`):
+#### Схема паралельного розподілу в `step()`
 
 ```mermaid
 flowchart TD
@@ -162,23 +251,24 @@ flowchart TD
     style StateUpdate fill:#0284c7,color:#fff,stroke:#38bdf8,stroke-width:2px
 ```
 
-3. **Вбудований веб-сервер та Dashboard (`HTTPServer`):** Приймає параметри з браузера, запускає симуляцію та повертає JSON із траєкторіями для візуалізації на 2D Canvas. Клієнтська частина (Rendering Path, `POST`) — [Лекція 4: Браузер зсередини](https://vplanto.github.io/java_script/04_browser_internals.html), [Лекція 7: HTTP/S та REST](https://vplanto.github.io/java_script/07_http_rest.html).
+3. **Веб-шар (`ReactorHandler` + `HTML_PAGE`):** `do_GET` віддає dashboard; `do_POST` на `/api/reset` і `/api/step` делегує в `engine`. Клієнтська частина (Rendering Path, `POST`) — [Лекція 4: Браузер зсередини](https://vplanto.github.io/java_script/04_browser_internals.html), [Лекція 7: HTTP/S та REST](https://vplanto.github.io/java_script/07_http_rest.html).
 
 ```
  ┌─────────────────────────────────────────────────────────────────────────────┐
  │                           Веб-браузер (Клієнт)                              │
- │            Інтерактивна Canvas-візуалізація + HTML Dashboard                │
+ │     loadPreset / toggleRun → stepSimulation / applyParams → Canvas          │
  └──────────────────────────────────────┬──────────────────────────────────────┘
-                                        │ HTTP POST /api/simulate (JSON)
+                                        │ POST /api/step  ·  POST /api/reset
                                         ▼
  ┌─────────────────────────────────────────────────────────────────────────────┐
- │                     Python HTTP Server (Main Process)                       │
+ │              ReactorHandler (Main Process) → engine.step() / reset_params() │
  └──────────────────────────────────────┬──────────────────────────────────────┘
-                                        │ multiprocessing.Pool (MIMD)
+                                        │ multiprocessing.Pool.map
                 ┌───────────────────────┼───────────────────────┐
                 ▼                       ▼                       ▼
      ┌─────────────────────┐ ┌─────────────────────┐ ┌─────────────────────┐
-     │ Worker 1 (CPU Core) │ │ Worker 2 (CPU Core) │ │ Worker N (CPU Core) │
+     │ update_neutrons_chunk│ │ update_neutrons_chunk│ │ update_neutrons_chunk│
+     │   (Worker / Core 1)  │ │   (Worker / Core 2)  │ │   (Worker / Core N)  │
      └─────────────────────┘ └─────────────────────┘ └─────────────────────┘
 ```
 
