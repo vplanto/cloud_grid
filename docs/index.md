@@ -30,12 +30,12 @@
 
 ## 1. Лекційні матеріали (11 пар)
 
-*Лекції 2–10 позначені «в розробці» — текст ще готується; лекції 0–1 доступні за посиланням.*
+*Лекції 3–10 позначені «в розробці» — текст ще готується; лекції 0–2 доступні за посиланням.*
 | Пара | Лекція | Зміст | Етап курсу |
 | :---: | :--- | :--- | :---: |
 | **1** | [Лекція 0: Вступ до курсу та еволюція абстракцій](./00_intro.md) | Манхеттенський проєкт, Монте-Карло, ENIAC → мейнфрейми → Грід → хмари; два MC-патерни (реактор / мережа) | — |
 | **2** | [Лекція 1: Таксономія Фліна](./01_flynn_taxonomy.md) | SISD / SIMD / MISD / MIMD; ПК, GPU, мейнфрейми; trade-offs архітектур | огляд |
-| **3** | Лекція 2: Моделі обчислень — HPC/Grid (Batch) vs Cloud (Interactive) & алгоритми планування *(в розробці)* | HPC (утилізація заліза 100%) vs Web/Cloud (P99 latency, еластичність); DAG задач; DRF у Slurm/PBS vs bin-packing у K8s; **trade-off:** макс. утилізація (Grid) vs прогнозованість затримки (Cloud) | 2 |
+| **3** | [Лекція 2: Моделі обчислень — HPC/Grid (Batch) vs Cloud (Interactive) & алгоритми планування](./02_hpc_grid_vs_cloud.md) | HPC (утилізація заліза 100%) vs Web/Cloud (P99 latency, еластичність); DAG задач; DRF у Slurm/PBS vs bin-packing у K8s; **trade-off:** макс. утилізація (Grid) vs прогнозованість затримки (Cloud) | 2 |
 | **4** | Лекція 3: Механіка ізоляції — гіпервізори (VM) vs контейнеризація (cgroups & namespaces) *(в розробці)* | Еволюція фізичний сервер → VM → контейнер; гіпервізори Type-1/2 vs namespaces і cgroups v2; **trade-off:** повна ізоляція й оверхед (VM) vs легковажність і спільне ядро (Containers) | 2–3 |
 | **5** | Лекція 4: Архітектура Multi-Tenant систем (IaaS, PaaS, SaaS) & проблема Noisy Neighbor *(в розробці)* | Shared vs Dedicated tenancy; Tenant Gateways, ізоляція даних; Rate Limiting (Token Bucket, Leaky Bucket); **trade-off:** економія ресурсів і Noisy Neighbor vs дорога hard isolation | 3–4 |
 | **6** | Лекція 5: Хмарні мережеві абстракції, API Gateways & Service Mesh *(в розробці)* | Overlay networks (CNI); API Gateway (маршрутизація, авторизація); sidecar proxy, mTLS, traffic splitting, circuit breaking; **trade-off:** прозорість і безпека vs затримка та CPU-оверхед проксі | 4 |
