@@ -10,9 +10,39 @@ import json
 import math
 import os
 import random
+import threading
 import time
+import uuid
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from multiprocessing import Pool, cpu_count
+
+SHARED_POOL = None
+
+def get_shared_pool(num_workers=None):
+    """
+    Returns a persistent shared multiprocessing.Pool.
+    Avoids per-step fork/teardown overhead and prevents process explosion
+    when multiple client sessions execute simulation steps concurrently.
+    """
+    global SHARED_POOL
+    if SHARED_POOL is None:
+        workers = num_workers or cpu_count()
+        SHARED_POOL = Pool(processes=workers)
+    return SHARED_POOL
+
+def shutdown_shared_pool(terminate=False):
+    """
+    Safely shuts down the persistent shared multiprocessing.Pool.
+    """
+    global SHARED_POOL
+    if SHARED_POOL is not None:
+        if terminate:
+            SHARED_POOL.terminate()
+        else:
+            SHARED_POOL.close()
+        SHARED_POOL.join()
+        SHARED_POOL = None
+
 
 class ReactorSimulationEngine:
     def __init__(self):
@@ -104,8 +134,8 @@ class ReactorSimulationEngine:
         for idx, chunk in enumerate(chunks):
             task_args.append((chunk, fuel_ratio, self.radius, base_seed + idx))
 
-        with Pool(processes=min(self.num_workers, len(chunks))) as pool:
-            results = pool.map(update_neutrons_chunk, task_args)
+        pool = get_shared_pool(self.num_workers)
+        results = pool.map(update_neutrons_chunk, task_args)
 
         elapsed = time.perf_counter() - start_time
 
@@ -232,7 +262,34 @@ def update_neutrons_chunk(args):
         "new_born": new_born
     }
 
-engine = ReactorSimulationEngine()
+class SessionManager:
+    """
+    Manages isolated simulation state per client session.
+    Eliminates race conditions and Shared Mutable State in multi-tenant environments.
+    Automatically purges inactive sessions after TTL to prevent memory leaks.
+    """
+    def __init__(self, ttl_seconds=300):
+        self.sessions = {}
+        self.last_active = {}
+        self.ttl = ttl_seconds
+        self._lock = threading.Lock()
+
+    def get_engine(self, session_id: str) -> ReactorSimulationEngine:
+        now = time.time()
+        with self._lock:
+            self._cleanup_expired(now)
+            if session_id not in self.sessions:
+                self.sessions[session_id] = ReactorSimulationEngine()
+            self.last_active[session_id] = now
+            return self.sessions[session_id]
+
+    def _cleanup_expired(self, now: float):
+        expired = [sid for sid, last in self.last_active.items() if now - last > self.ttl]
+        for sid in expired:
+            self.sessions.pop(sid, None)
+            self.last_active.pop(sid, None)
+
+session_manager = SessionManager(ttl_seconds=300)
 
 # HTML Dashboard
 HTML_PAGE = """<!DOCTYPE html>
@@ -372,8 +429,13 @@ HTML_PAGE = """<!DOCTYPE html>
                 <h1>Моделювання ланцюгової реакції реактора (MIMD Monte Carlo)</h1>
                 <div style="font-size: 0.85rem; color: #94a3b8;">Мега-масштаб: 1,000,000+ частинок на CPU кластері</div>
             </div>
-            <div style="background: #1e293b; padding: 8px 16px; border-radius: 20px; font-weight: bold; font-size: 0.85rem; color: var(--accent-color);">
-                MIMD Architecture Engine
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <span id="session-badge" style="background: #1e293b; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border-color); font-size: 0.8rem; color: #94a3b8;">
+                    Сесія: <b id="session-id-display" style="color: var(--accent-color);">ініціалізація...</b>
+                </span>
+                <span style="background: #1e293b; padding: 8px 16px; border-radius: 20px; font-weight: bold; font-size: 0.85rem; color: var(--accent-color);">
+                    MIMD Architecture Engine
+                </span>
             </div>
         </header>
 
@@ -453,6 +515,18 @@ HTML_PAGE = """<!DOCTYPE html>
         let isRunning = false;
         let timerId = null;
 
+        // Session ID management for Multi-Tenancy (Isolated state per student/tab)
+        let sessionId = localStorage.getItem('reactor_session_id');
+        if (!sessionId) {
+            sessionId = 'sess_' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36).substring(4);
+            localStorage.setItem('reactor_session_id', sessionId);
+        }
+        const sessDisplay = document.getElementById('session-id-display');
+        if (sessDisplay) {
+            sessDisplay.innerText = sessionId.substring(0, 12);
+            sessDisplay.title = 'Повний ID сесії: ' + sessionId;
+        }
+
         function drawReactorCore() {
             ctx.clearRect(0, 0, W, H);
             
@@ -474,7 +548,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
         async function stepSimulation() {
             try {
-                const res = await fetch('/api/step', { method: 'POST' });
+                const res = await fetch('/api/step', {
+                    method: 'POST',
+                    headers: { 'X-Simulation-Session': sessionId }
+                });
                 const data = await res.json();
 
                 const banner = document.getElementById('result-banner');
@@ -543,7 +620,10 @@ HTML_PAGE = """<!DOCTYPE html>
         async function applyParams(params) {
             await fetch('/api/reset', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Simulation-Session': sessionId
+                },
                 body: JSON.stringify(params)
             });
 
@@ -582,16 +662,37 @@ HTML_PAGE = """<!DOCTYPE html>
 """
 
 class ReactorHandler(BaseHTTPRequestHandler):
+    def get_session_id(self):
+        # 1. Custom HTTP header
+        sid = self.headers.get("X-Simulation-Session")
+        if sid:
+            return sid.strip()
+        # 2. Cookie fallback
+        cookie_header = self.headers.get("Cookie")
+        if cookie_header:
+            cookies = dict(c.strip().split("=", 1) for c in cookie_header.split(";") if "=" in c)
+            if "sim_session" in cookies:
+                return cookies["sim_session"].strip()
+        # 3. Default fallback
+        return "default_session"
+
     def do_GET(self):
         if self.path in ("/", "/index.html"):
+            sid = self.get_session_id()
+            if sid == "default_session":
+                sid = "sess_" + uuid.uuid4().hex[:10]
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Set-Cookie", f"sim_session={sid}; Path=/; SameSite=Lax")
             self.end_headers()
             self.wfile.write(HTML_PAGE.encode("utf-8"))
         else:
             self.send_error(404)
 
     def do_POST(self):
+        sid = self.get_session_id()
+        engine = session_manager.get_engine(sid)
+
         if self.path == "/api/reset":
             len_b = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(len_b)
@@ -600,13 +701,16 @@ class ReactorHandler(BaseHTTPRequestHandler):
             
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
+            self.send_header("Set-Cookie", f"sim_session={sid}; Path=/; SameSite=Lax")
             self.end_headers()
-            self.wfile.write(json.dumps({"status": "ok"}).encode("utf-8"))
+            self.wfile.write(json.dumps({"status": "ok", "session_id": sid}).encode("utf-8"))
             
         elif self.path == "/api/step":
             state = engine.step()
+            state["session_id"] = sid
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
+            self.send_header("Set-Cookie", f"sim_session={sid}; Path=/; SameSite=Lax")
             self.end_headers()
             self.wfile.write(json.dumps(state).encode("utf-8"))
         else:
@@ -630,6 +734,7 @@ def run_headless_benchmark(params, max_steps=30, output_file="source/mimd-pc/ben
     print("------------------------------------------------------------")
     print("Running simulation steps...")
     
+    engine = ReactorSimulationEngine()
     engine.reset_params(params)
     
     start_wall = time.perf_counter()
@@ -707,17 +812,26 @@ def main():
             "n_slow": args.slow,
             "num_workers": args.workers
         }
-        run_headless_benchmark(params, max_steps=args.steps, output_file=args.out)
+        try:
+            run_headless_benchmark(params, max_steps=args.steps, output_file=args.out)
+        finally:
+            shutdown_shared_pool()
     else:
+        # Pre-warm shared worker pool for web server
+        get_shared_pool(args.workers)
         server_address = ("", args.port)
         httpd = HTTPServer(server_address, ReactorHandler)
         print(f"=== Monte Carlo Reactor Simulation (MIMD PC 1M+ Scale) ===")
         print(f"Server running at http://localhost:{args.port}/")
-        print(f"CPU Cores Available: {cpu_count()}")
+        print(f"CPU Cores Available: {cpu_count()} (Worker Pool: {args.workers})")
+        print(f"Multi-Tenancy: Enabled via SessionManager (Isolated in-memory state per client)")
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
-            print("\nStopped.")
+            print("\nShutting down server and worker pool...")
+        finally:
+            httpd.server_close()
+            shutdown_shared_pool(terminate=True)
 
 if __name__ == "__main__":
     main()

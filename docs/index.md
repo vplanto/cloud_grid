@@ -30,21 +30,21 @@
 
 ## 1. Лекційні матеріали (11 пар)
 
-*Лекції 3–10 позначені «в розробці» — текст ще готується; лекції 0–2 доступні за посиланням.*
+*Усі лекції 0–10 розроблені та доступні за посиланнями нижче.*
 
 | Пара | Лекція | Зміст | Етап курсу |
 | :---: | :--- | :--- | :---: |
 | **1** | [Лекція 0: Вступ до курсу та еволюція абстракцій](./00_intro.md) | Манхеттенський проєкт, Монте-Карло, ENIAC → мейнфрейми → Грід → хмари; два MC-патерни (реактор / мережа) | — |
 | **2** | [Лекція 1: Таксономія Фліна](./01_flynn_taxonomy.md) | SISD / SIMD / MISD / MIMD; ПК, GPU, мейнфрейми; trade-offs архітектур | огляд |
 | **3** | [Лекція 2: Моделі обчислень — HPC/Grid (Batch) vs Cloud (Interactive) & алгоритми планування](./02_hpc_grid_vs_cloud.md) | HPC (утилізація заліза 100%) vs Web/Cloud (P99 latency, еластичність); DAG задач; DRF у Slurm/PBS vs bin-packing у K8s; **trade-off:** макс. утилізація (Grid) vs прогнозованість затримки (Cloud) | 2 |
-| **4** | Лекція 3: Механіка ізоляції — гіпервізори (VM) vs контейнеризація (cgroups & namespaces) *(в розробці)* | Еволюція фізичний сервер → VM → контейнер; гіпервізори Type-1/2 vs namespaces і cgroups v2; **trade-off:** повна ізоляція й оверхед (VM) vs легковажність і спільне ядро (Containers) | 2–3 |
-| **5** | Лекція 4: Архітектура Multi-Tenant систем (IaaS, PaaS, SaaS) & проблема Noisy Neighbor *(в розробці)* | Shared vs Dedicated tenancy; Tenant Gateways, ізоляція даних; Rate Limiting (Token Bucket, Leaky Bucket); **trade-off:** економія ресурсів і Noisy Neighbor vs дорога hard isolation | 3–4 |
-| **6** | Лекція 5: Хмарні мережеві абстракції, API Gateways & Service Mesh *(в розробці)* | Overlay networks (CNI); API Gateway (маршрутизація, авторизація); sidecar proxy, mTLS, traffic splitting, circuit breaking; **trade-off:** прозорість і безпека vs затримка та CPU-оверхед проксі | 4 |
-| **7** | Лекція 6: Архітектура розподіленого зберігання даних & Consistent Hashing *(в розробці)* | Block (EBS) / File (NFS) / Object (S3, immutability); шардинг RDBMS vs NoSQL; consistent hashing з віртуальними вузлами; **trade-off:** ACID vs BASE / горизонтальне масштабування | 4 |
-| **8** | Лекція 7: Декларативна оркестрація (Kubernetes Control Plane) & ресурсна модель *(в розробці)* | Декларативна модель vs імперативні скрипти; etcd, reconciliation loop; Pod lifecycle; QoS (Guaranteed, Burstable, BestEffort); **trade-off:** self-healing vs evictions під node-pressure | 4 |
-| **9** | Лекція 8: Системна спостережуваність (Observability) & troubleshooting розподілених відмов *(в розробці)* | P50/P90/P99; distributed tracing (Jaeger: spans, baggage); ELK / Graylog; ImagePullBackOff, CrashLoopBackOff, Exit 137 (OOM); **trade-off:** повна прозорість vs накладні витрати на мережу й зберігання | 4 |
-| **10** | Лекція 9: Безстановість (Stateless), Event-Driven Architecture & Serverless (FaaS) *(в розробці)* | Гарантії доставки подій (at-most/least/exactly-once); Kafka, RabbitMQ; FaaS і cold start; **trade-off:** нульова вартість у простої vs cold start latency | 4–5 |
-| **11** | Лекція 10: FinOps, Resilience Engineering (Chaos) & підсумковий архітектурний синтез *(в розробці)* | Capacity planning, Spot/Preemptible, TCO; Chaos Engineering (Chaos Mesh, Toxiproxy); синтез 5 етапів курсу — імперативне ядро, ООП-модулі, контейнери, stateless-код, AI-інструменти | — |
+| **4** | [Лекція 3: Механіка ізоляції — гіпервізори (VM) vs контейнеризація (cgroups & namespaces)](./03_isolation_mechanics.md) | Еволюція фізичний сервер → VM → контейнер; гіпервізори Type-1/2 vs namespaces і cgroups v2; **trade-off:** повна ізоляція й оверхед (VM) vs легковажність і спільне ядро (Containers) | 2–3 |
+| **5** | [Лекція 4: Архітектура Multi-Tenant систем (IaaS, PaaS, SaaS) & проблема Noisy Neighbor](./04_multitenancy_noisy_neighbor.md) | Shared vs Dedicated tenancy; Tenant Gateways, ізоляція даних; Rate Limiting (Token Bucket, Leaky Bucket); **trade-off:** економія ресурсів і Noisy Neighbor vs дорога hard isolation | 3–4 |
+| **6** | [Лекція 5: Хмарні мережеві абстракції, API Gateways & Service Mesh](./05_networking_mesh.md) | Overlay networks (CNI); API Gateway (маршрутизація, авторизація); sidecar proxy, mTLS, traffic splitting, circuit breaking; **trade-off:** прозорість і безпека vs затримка та CPU-оверхед проксі | 4 |
+| **7** | [Лекція 6: Архітектура розподіленого зберігання даних & Consistent Hashing](./06_distributed_storage_hashing.md) | Block (EBS) / File (NFS) / Object (S3, immutability); шардинг RDBMS vs NoSQL; consistent hashing з віртуальними вузлами; **trade-off:** ACID vs BASE / горизонтальне масштабування | 4 |
+| **8** | [Лекція 7: Декларативна оркестрація (Kubernetes Control Plane) & ресурсна модель](./07_k8s_orchestration_resources.md) | Декларативна модель vs імперативні скрипти; etcd, reconciliation loop; Pod lifecycle; QoS (Guaranteed, Burstable, BestEffort); **trade-off:** self-healing vs evictions під node-pressure | 4 |
+| **9** | [Лекція 8: Системна спостережуваність (Observability) & troubleshooting розподілених відмов](./08_observability_troubleshooting.md) | P50/P90/P99; distributed tracing (Jaeger: spans, baggage); ELK / Graylog; ImagePullBackOff, CrashLoopBackOff, Exit 137 (OOM); **trade-off:** повна прозорість vs накладні витрати на мережу й зберігання | 4 |
+| **10** | [Лекція 9: Безстановість (Stateless), Event-Driven Architecture & Serverless (FaaS)](./09_stateless_eda_serverless.md) | Гарантії доставки подій (at-most/least/exactly-once); Kafka, RabbitMQ; FaaS і cold start; **trade-off:** нульова вартість у простої vs cold start latency | 4–5 |
+| **11** | [Лекція 10: FinOps, Resilience Engineering (Chaos) & підсумковий архітектурний синтез](./10_finops_resilience_synthesis.md) | Capacity planning, Spot/Preemptible, TCO; Chaos Engineering (Chaos Mesh, Toxiproxy); синтез 5 етапів курсу — імперативне ядро, ООП-модулі, контейнери, stateless-код, AI-інструменти | — |
 
 ---
 

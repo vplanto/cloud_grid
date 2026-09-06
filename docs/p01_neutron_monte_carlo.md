@@ -81,14 +81,14 @@ graph LR
 
 | № | Блок у `app.py` | Призначення |
 | :--- | :--- | :--- |
-| 1 | `import …` | Стандартна бібліотека: `argparse`, `json`, `multiprocessing`, `HTTPServer` |
+| 1 | `import …`, `SHARED_POOL`, `get_shared_pool()` | Довгоживучий спільний пул `multiprocessing.Pool` (усунення оверхеду `fork` на кожен крок) |
 | 2 | `class ReactorSimulationEngine` | Стан реактора та один тик симуляції (`step`) |
 | 3 | `def update_neutrons_chunk` | Обчислення Монте-Карло для одного шматка масиву нейтронів (воркер) |
-| 4 | `engine = ReactorSimulationEngine()` | Глобальний екземпляр двигуна — спільний для веб-режиму |
-| 5 | `HTML_PAGE = """…"""` | Вбудована HTML-сторінка з CSS, Canvas і JavaScript (dashboard) |
-| 6 | `class ReactorHandler` | HTTP-обробник: `GET /` і `POST /api/*` |
+| 4 | `class SessionManager`, `session_manager` | Менеджер сесій для підтримки Multi-Tenancy (ізольований стан симуляції на кожного клієнта/вкладку) |
+| 5 | `HTML_PAGE = """…"""` | Вбудована HTML-сторінка з CSS, Canvas, сесіями (`X-Simulation-Session`) і JavaScript (dashboard) |
+| 6 | `class ReactorHandler` | HTTP-обробник: `GET /`, сесійні куки, селекція engine та `POST /api/*` |
 | 7 | `def run_headless_benchmark` | Консольний прогін без браузера + запис JSON |
-| 8 | `def main` | Точка розгалуження: веб-сервер або `--headless` |
+| 8 | `def main` | Точка розгалуження: веб-сервер або `--headless`, коректне завершення `SHARED_POOL` |
 | 9 | `if __name__ == "__main__"` | Запуск `main()` при прямому виклику скрипта |
 
 ### 3.2. Методи Python і місця виклику
@@ -97,23 +97,23 @@ graph LR
 
 | Метод | Що робить | Хто викликає |
 | :--- | :--- | :--- |
-| `__init__()` | Створює двигун із дефолтними параметрами (паливо 50%, 350k fast + 150k slow, `num_workers = cpu_count()`) | `engine = ReactorSimulationEngine()` при завантаженні модуля |
+| `__init__()` | Створює двигун із дефолтними параметрами (паливо 50%, 350k fast + 150k slow, `num_workers = cpu_count()`) | `SessionManager.get_engine()`; `run_headless_benchmark()` |
 | `reset_params(params)` | Скидає лічильники, перегенеровує початковий масив `self.neutrons` за `fuel_mass`, `n_fast`, `n_slow`, `num_workers` | `__init__()`; `ReactorHandler.do_POST()` → `POST /api/reset`; `run_headless_benchmark()` на старті бенчмарку |
 | `get_state()` | Повертає знімок стану **без** обчислення тику (статус, k, вибірка до 750 нейтронів для Canvas) | `step()` — якщо активних нейтронів 0 або > 3.5M (ранній вихід) |
-| `step()` | Один тик: шардить `self.neutrons`, запускає `Pool.map(update_neutrons_chunk, …)`, зливає результати, рахує `k_factor` і `status` | `ReactorHandler.do_POST()` → `POST /api/step`; цикл у `run_headless_benchmark()` |
+| `step()` | Один тик: шардить `self.neutrons`, передає в `get_shared_pool().map(...)`, зливає результати, рахує `k_factor` і `status` | `ReactorHandler.do_POST()` → `POST /api/step`; цикл у `run_headless_benchmark()` |
 
 #### `update_neutrons_chunk` (функція модуля, не метод класу)
 
 | Функція | Що робить | Хто викликає |
 | :--- | :--- | :--- |
-| `update_neutrons_chunk(args)` | Для кожного нейтрона в chunk: рух → виліт / ділення / поглинання / розсіювання. Повертає `{survived, fissions, absorbed, escaped, new_born}` | `ReactorSimulationEngine.step()` через `multiprocessing.Pool.map(...)` — по одному виклику на кожен CPU-воркер і chunk |
+| `update_neutrons_chunk(args)` | Для кожного нейтрона в chunk: рух → виліт / ділення / поглинання / розсіювання. Повертає `{survived, fissions, absorbed, escaped, new_born}` | `ReactorSimulationEngine.step()` через `get_shared_pool().map(...)` — воркери постійно прогріті в пулі |
 
 #### `ReactorHandler` (HTTP)
 
 | Метод | Що робить | Хто викликає |
 | :--- | :--- | :--- |
-| `do_GET()` | `GET /` або `/index.html` → віддає `HTML_PAGE` | Браузер при відкритті `http://localhost:8080/` |
-| `do_POST()` | Маршрутизація: `/api/reset` → `engine.reset_params()`; `/api/step` → `engine.step()` → JSON у відповідь | JavaScript у `HTML_PAGE`: `fetch('/api/reset')` з `applyParams()`, `fetch('/api/step')` з `stepSimulation()` |
+| `do_GET()` | `GET /` або `/index.html` → встановлює cookie `sim_session` та віддає `HTML_PAGE` | Браузер при відкритті `http://localhost:8080/` |
+| `do_POST()` | Визначає сесію (`X-Simulation-Session` або cookie), отримує відповідний `engine` із `session_manager`: `/api/reset` → `engine.reset_params()`; `/api/step` → `engine.step()` | JavaScript у `HTML_PAGE` з передачею заголовка `X-Simulation-Session` |
 
 #### Точка входу та бенчмарк
 
