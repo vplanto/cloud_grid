@@ -195,6 +195,40 @@ graph LR
     style Interactive fill:#064e3b,color:#fff
 ```
 
+### ⚡ Кейс: Nvidia PAIR (Personal AI Router)
+
+На **IFA 2026** Nvidia представила [**PAIR**](https://developer.nvidia.com/blog/nvidia-pair-virtual-inference-router-expands-available-compute-on-your-local-network/) (*Personal AI Router* — персональний AI-роутер) — **open-source** інструмент (Apache 2.0, beta), який ілюструє **Grid-обчислення** та **Edge AI** на побутовому рівні: кілька ПК у домашній мережі замість одного GPU в хмарі.
+
+| Архітектурний аспект | Що робить PAIR | Зв'язок із лекцією |
+| :--- | :--- | :--- |
+| **Оркестрація та балансування** | Локальний *traffic controller*: велику **агентну** AI-задачу ділить на незалежні мікрозавдання й **паралельно** розкидає їх по вузлах у LAN | Аналог планувальника (Slurm / `kube-scheduler`), але для **inference**-запитів до Ollama / LM Studio |
+| **Без Memory Pooling** | **Не об'єднує VRAM** вузлів (на відміну від enterprise-кластерів на кшталт DGX) | Кожен вузол виконує **ізольовану** частину пайплайну в межах **своїх** ресурсів — як batch-job «займи вузол і рахуй» |
+| **Гетерогенне середовище** | *Plug-and-play*: динамічне виявлення, додавання й відключення вузлів; Windows, macOS, Ubuntu; RTX 20+, Apple M4+, DGX Spark | Класичний **Grid** — ближче до [Volunteer Grid](./00_intro.md), ніж до Corporate/Academic Slurm-кластера |
+| **Privacy-first Edge** | Промпти й контекст лишаються в **локальній мережі**; повний **офлайн** без хмарних API | Trade-off **Edge vs Cloud**: відмова від еластичності хмари заради приватності та нульової latency до інтернету |
+
+```mermaid
+flowchart LR
+    AGENT["AI-агент<br>(Ollama / LM Studio API)"]
+    PAIR["PAIR router<br>розбиття на sub-tasks"]
+    N1["Node: RTX ПК"]
+    N2["Node: Mac M4"]
+    N3["Node: DGX Spark"]
+
+    AGENT --> PAIR
+    PAIR --> N1
+    PAIR --> N2
+    PAIR --> N3
+
+    style PAIR fill:#4c1d95,color:#fff
+    style N1 fill:#1e3a5f,color:#fff
+    style N2 fill:#064e3b,color:#fff
+    style N3 fill:#1e293b,color:#fff
+```
+
+**Що варто запам'ятати:** PAIR — не новий inference-движок, а **проксі-роутер** над уже встановленими Ollama / LM Studio. Агент бачить **одне** локальне підключення; за кулісами PAIR обирає вузол за готовністю, наявністю моделі та завантаженням GPU.
+
+> **Для обговорення на парі:** чим PAIR схожий на bin-packing у Kubernetes, а чим — на SETI@home? Чому відсутність pooling VRAM — принципове обмеження для великих LLM і коли це прийнятний компроміс?
+
 ---
 
 ## Розділ 2. Алгоритми планування ресурсів
@@ -389,6 +423,7 @@ flowchart LR
 3. **Cloud/K8s** планує через bin-packing, `requests`/`limits` і QoS-класи.
 4. **Trade-off:** утилізація заліза vs прогнозованість затримки та ізоляція орендарів.
 5. **Монте-Карло** на курсі — batch MIMD; UI/API — interactive; змішувати на одному вузлі без ізоляції — шлях до Noisy Neighbor.
+6. **Nvidia PAIR** — побутовий Grid/Edge: роутинг sub-tasks по гетерогенній LAN без pooling VRAM і без хмарних API.
 
 ---
 
