@@ -29,9 +29,14 @@ data/
 dataset/
 *.mat
 
-# Benchmark outputs (regenerated locally)
+# Benchmark outputs (regenerated locally; reference JSON for course — track in git)
 source/mimd-pc/benchmark_results_*.json
+!source/mimd-pc/benchmark_results_mimd_pc.json
 source/grid-mimd/benchmark_results_*.json
+source/ray-grid/benchmark_results_*.json
+!source/ray-grid/benchmark_results_ray_grid.json
+source/ray-grid/benchmark_results_local_smoke.json
+source/ray-grid/benchmark_results_local_smoke.json.tmp
 
 # OS and IDE
 .DS_Store

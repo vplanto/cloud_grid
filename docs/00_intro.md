@@ -224,7 +224,7 @@ flowchart LR
     style G fill:#064e3b,color:#fff
 ```
 
-Той самий Монте-Карло, той самий MIMD-патерн — інша фізика і інша вісь випадковості. Деталі проєкту з датасетом PowerGraph — у [n01](./n01_power_grid_project.md); реалізація реактора — у [p01](./p01_neutron_monte_carlo.md).
+Той самий Монте-Карло, той самий MIMD-патерн — інша фізика і інша вісь випадковості. Деталі проєкту з датасетом PowerGraph — у [n01](./n01_power_grid_project.md); реалізація реактора — [p01](./p01_neutron_monte_carlo.md) (локальний `Pool`), [p02](./p02_ray_grid.md) (Ray-кластер 1+2 без Docker).
 
 ---
 

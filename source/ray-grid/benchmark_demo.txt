@@ -1,0 +1,37 @@
+
+========================================================================
+  DEMO: Local PC (stage 1)  ->  Ray Grid (stage 2)
+========================================================================
+
+STAGE 1 -- one computer, batch on multiprocessing.Pool
+  JSON:   /home/vplanto/projects/onu/cloud_grid/source/mimd-pc/benchmark_results_mimd_pc.json
+  Code:   source/mimd-pc/app.py  (practice 1)
+  Hardware: 1 node, 8 local CPU workers
+  Load:   350,000 fast + 150,000 slow neutrons
+
+STAGE 2 -- Ray cluster, chunks across nodes (no Docker)
+  JSON:   /home/vplanto/projects/onu/cloud_grid/source/ray-grid/benchmark_results_ray_grid.json
+  Code:   source/ray-grid/run.py load
+  Cluster: 2 node(s), 32 CPUs total (backend=ray)
+  Load:   50,000 fast + 20,000 slow (preset=lab)
+
+------------------------------------------------------------------------
+Metric                              Local (p01)         Grid (p02)
+------------------------------------------------------------------------
+Architecture                            MIMD_PC       RAY_GRID_RAY
+Simulation steps                             30                 30
+Final status                         STABLE_RUN         STABLE_RUN
+Total time, s                           19.7864             2.0823
+Avg step, ms                             659.41              69.36
+Throughput, parts/s                    123863.2           164078.4
+------------------------------------------------------------------------
+  Local wall-clock longer: 9.5x  (different load!)
+  Grid / local throughput: 1.32x
+
+SAY ON LECTURE (honest):
+  * Illustrates the PATH: one PC -> distributed batch, not a fair bake-off.
+  * Presets DIFFER: p01 heavier (control), p02 lighter (lab). Time/throughput are not 1:1 comparable.
+  * Grid uses cluster CPUs; local uses one laptop's cores only.
+  * Network + chunk serialization = cost of distribution (real 3 PCs on lab day).
+  * Docker (stage 3) fixes 'works on my laptop' dependency pain.
+========================================================================

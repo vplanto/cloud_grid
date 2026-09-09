@@ -1,0 +1,36 @@
+{
+  "benchmark_suite": "ray_grid_mc_reactor",
+  "compare_mode": false,
+  "runs": {
+    "architecture": "RAY_GRID_RAY",
+    "backend": "ray",
+    "cpu_workers": 16,
+    "fuel_mass": 50,
+    "initial_fast": 50000,
+    "initial_slow": 20000,
+    "preset": "lab",
+    "total_steps_executed": 30,
+    "total_fissions": 84318,
+    "total_absorbed": 141855,
+    "total_escaped": 0,
+    "final_active_neutrons": 33398,
+    "final_status": "STABLE_RUN",
+    "cluster": {
+      "connected": true,
+      "nodes": 1,
+      "cpus": 16,
+      "node_details": [
+        {
+          "node_id": "cf32ef30",
+          "ip": "10.67.151.16",
+          "cpus": 16
+        }
+      ]
+    },
+    "metrics": {
+      "total_execution_time_sec": 1.013,
+      "avg_step_time_ms": 33.71,
+      "throughput_particles_per_sec": 339473.8
+    }
+  }
+}

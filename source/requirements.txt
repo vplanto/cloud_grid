@@ -1,12 +1,2 @@
-# Залежності для source/dataset_scripts/ (PowerGraph: .mat, візуалізація).
-# source/mimd-pc/app.py — лише стандартна бібліотека Python, pip не потрібен.
-#
-#   python -m venv .venv
-#   source .venv/bin/activate
-#   pip install -r source/requirements.txt
-
-numpy
-scipy
-h5py
-matplotlib
-networkx
+numpy>=1.24
+ray[default]>=2.9

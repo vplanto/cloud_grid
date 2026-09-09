@@ -340,6 +340,10 @@ python3 source/mimd-pc/app.py --headless --steps 30 --out source/mimd-pc/benchma
 
 ---
 
+**Наступний етап:** [Практика 2 — Ray-кластер (1 head + 2 workers)](./p02_ray_grid.md) (`source/ray-grid/run.py`).
+
+---
+
 ## 6. Контрольні питання
 
 <details markdown="1">

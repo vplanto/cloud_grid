@@ -375,7 +375,7 @@ graph TB
 | **Профіль** | Batch: `run_headless_benchmark()`, без UI | Batch: $N$ незалежних `run_trial()` |
 | **Метрика успіху** | neutrons/sec, speedup vs workers | trials/sec, $P(\text{blackout})$ |
 | **Паралелізм** | MIMD — [лекція 1](./01_flynn_taxonomy.md#4-mimd-multiple-instruction-multiple-data) | Той самий патерн `Pool.map` / Ray на етапі 2 |
-| **Етап курсу** | Етап 1: локальний `Pool.map` | Етап 1–2: MIMD → [Ray без Docker](./index.md) |
+| **Етап курсу** | Етап 1: [p01](./p01_neutron_monte_carlo.md); етап 2: [p02 Ray-кластер](./p02_ray_grid.md) | Етап 1–2: MIMD → [Ray без Docker](./index.md) |
 
 **Профіль batch (не interactive):**
 - Користувач не чекає відповідь на *кожну* ітерацію MC.
