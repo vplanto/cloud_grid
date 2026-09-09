@@ -27,6 +27,7 @@ env/
 # PowerGraph / local datasets (large .mat — keep outside git)
 data/
 dataset/
+Datasets/
 *.mat
 
 # Benchmark outputs (regenerated locally; reference JSON for course — track in git)
