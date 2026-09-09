@@ -28,7 +28,7 @@ def _require_deps():
         import matplotlib.pyplot as plt
         import networkx as nx
     except ImportError as exc:
-        raise SystemExit("Потрібно: pip install matplotlib networkx") from exc
+        raise SystemExit("Required: pip install matplotlib networkx") from exc
     return plt, nx
 
 
@@ -136,9 +136,9 @@ def plot_graph(
 
     n_buses = graph.number_of_nodes()
     n_branches = graph.number_of_edges()
-    main_title = title or f"IEEE-118 ({n_buses} вузлів, {n_branches} гілок)"
+    main_title = title or f"IEEE-118 ({n_buses} buses, {n_branches} branches)"
     ax.set_title(
-        f"{main_title}\n(топологічна схема — вузли розставлені алгоритмом, це не географія)",
+        f"{main_title}\n(topology layout — nodes placed by algorithm, not geography)",
         fontsize=11,
         pad=12,
     )
@@ -150,9 +150,9 @@ def plot_graph(
         cax_n = fig.add_axes([0.10, 0.15, 0.80, 0.022])
         cbar_n = fig.colorbar(nodes, cax=cax_n, orientation="horizontal")
         node_lbl = (
-            "Навантаження вузла — скільки енергії споживає підстанція або район"
+            "Bus load — active power demand at the bus"
             if colored_by_load
-            else "Ступінь вузла — скільки ліній до нього підключено"
+            else "Node degree — number of incident branches"
         )
         cbar_n.ax.set_title(node_lbl, fontsize=9, pad=8)
         cbar_n.ax.tick_params(labelsize=8)
@@ -161,7 +161,7 @@ def plot_graph(
         cax_e = fig.add_axes([0.10, 0.05, 0.80, 0.022])
         cbar_e = fig.colorbar(edges, cax=cax_e, orientation="horizontal")
         cbar_e.ax.set_title(
-            "Завантаженість лінії — частка допустимого струму; ближче до 1 — вищий ризик перевантаження",
+            "Line utilization — fraction of rating; closer to 1 = higher overload risk",
             fontsize=9,
             pad=8,
         )
@@ -210,11 +210,11 @@ def main() -> int:
             layout=args.layout,
             pos=pos,
             with_labels=args.labels,
-            title="IEEE-118 (тільки топологія bList)",
+            title="IEEE-118 (topology only, bList)",
             out=out,
             dpi=args.dpi,
         )
-        print(f"Збережено: {out.resolve()}")
+        print(f"Saved: {out.resolve()}")
         return 0
 
     lo, hi = min(indices), max(indices) + 1
@@ -231,7 +231,7 @@ def main() -> int:
     for s in indices:
         local_i = s - lo
         if local_i < 0 or local_i >= pg.n_samples:
-            print(f"Пропущено s={s}: немає в завантаженому діапазоні [{lo}, {hi})")
+            print(f"Skipped s={s}: not in loaded range [{lo}, {hi})")
             continue
 
         if args.out and len(indices) == 1 and not args.out.is_dir():
@@ -248,14 +248,14 @@ def main() -> int:
             layout=args.layout,
             pos=pos,
             with_labels=args.labels,
-            title=f"IEEE-118 (сценарій {s + 1} з 122 500)",
+            title=f"IEEE-118 (scenario {s + 1} of 122,500)",
             out=out_path,
             dpi=args.dpi,
         )
-        print(f"Збережено: {out_path.resolve()}")
+        print(f"Saved: {out_path.resolve()}")
 
     n_bus = len({int(x) for x in pg.blist.ravel()})
-    print(f"  вузлів: {n_bus}, гілок: {pg.blist.shape[0]}")
+    print(f"  buses: {n_bus}, branches: {pg.blist.shape[0]}")
     return 0
 
 

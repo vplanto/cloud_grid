@@ -25,7 +25,7 @@ def _require_matplotlib():
     try:
         import matplotlib.pyplot as plt
     except ImportError as exc:
-        raise SystemExit("Потрібен matplotlib: pip install matplotlib") from exc
+        raise SystemExit("Required: pip install matplotlib") from exc
     return plt
 
 
@@ -33,9 +33,9 @@ def plot_dns_histogram(of_reg: np.ndarray, out: Path) -> None:
     plt = _require_matplotlib()
     fig, ax = plt.subplots(figsize=(7, 4))
     ax.hist(of_reg, bins=60, color="#38bdf8", edgecolor="#0f172a", linewidth=0.3)
-    ax.set_xlabel("dns_MW (частка невиконаного попиту)")
-    ax.set_ylabel("кількість зразків")
-    ax.set_title("PowerGraph IEEE-118: розподіл DNS (122 500 сценаріїв Cascades)")
+    ax.set_xlabel("dns_MW (fraction of unserved demand)")
+    ax.set_ylabel("sample count")
+    ax.set_title("PowerGraph IEEE-118: DNS distribution (122,500 Cascades scenarios)")
     ax.grid(axis="y", alpha=0.3)
     fig.tight_layout()
     fig.savefig(out, dpi=140)
@@ -44,12 +44,12 @@ def plot_dns_histogram(of_reg: np.ndarray, out: Path) -> None:
 
 def plot_blackout_bar(of_bi: np.ndarray, out: Path) -> None:
     plt = _require_matplotlib()
-    labels = ["без блек-ауту (0)", "є DNS (1)"]
+    labels = ["no blackout (0)", "DNS > 0 (1)"]
     counts = [int(np.sum(of_bi == 0)), int(np.sum(of_bi == 1))]
     fig, ax = plt.subplots(figsize=(5, 4))
     ax.bar(labels, counts, color=["#34d399", "#f87171"])
-    ax.set_ylabel("кількість зразків")
-    ax.set_title("Бінарні мітки output_features")
+    ax.set_ylabel("sample count")
+    ax.set_title("Binary labels output_features")
     for i, c in enumerate(counts):
         ax.text(i, c, f"{c:,}", ha="center", va="bottom", fontsize=9)
     fig.tight_layout()
@@ -67,8 +67,8 @@ def plot_branch_flow_vs_capacity(pg, sample: int, out: Path) -> None:
     lim = max(max(caps), max(np.abs(flows))) * 1.05
     ax.plot([0, lim], [0, lim], "--", color="#64748b", label="flow = capacity")
     ax.set_xlabel("line rating lr (capacity)")
-    ax.set_ylabel("|P_ij| (початковий потік)")
-    ax.set_title(f"Зразок s={sample}: навантаження гілок до аварії")
+    ax.set_ylabel("|P_ij| (initial flow)")
+    ax.set_title(f"Sample s={sample}: branch loading before contingency")
     ax.legend()
     ax.grid(alpha=0.3)
     fig.tight_layout()
@@ -81,9 +81,9 @@ def plot_node_load(pg, sample: int, out: Path) -> None:
     loads = pg.Bf[sample, :, 0]
     fig, ax = plt.subplots(figsize=(7, 3.5))
     ax.bar(np.arange(1, len(loads) + 1), loads, width=1.0, color="#38bdf8")
-    ax.set_xlabel("вузол (bus id)")
+    ax.set_xlabel("bus id")
     ax.set_ylabel("P_net")
-    ax.set_title(f"Зразок s={sample}: навантаження вузлів")
+    ax.set_title(f"Sample s={sample}: bus active loads")
     fig.tight_layout()
     fig.savefig(out, dpi=140)
     plt.close(fig)
@@ -97,20 +97,20 @@ def main() -> int:
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    print("Завантаження міток (швидко, без Bf/Ef)...")
+    print("Loading labels (fast, without Bf/Ef)...")
     pg_labels = load_powergraph_cascades(args.data, load_large=False)
     plot_dns_histogram(pg_labels.of_reg, OUT_DIR / "dns_histogram.png")
     plot_blackout_bar(pg_labels.of_bi, OUT_DIR / "blackout_bar.png")
-    print(f"  → {OUT_DIR / 'dns_histogram.png'}")
-    print(f"  → {OUT_DIR / 'blackout_bar.png'}")
+    print(f"  -> {OUT_DIR / 'dns_histogram.png'}")
+    print(f"  -> {OUT_DIR / 'blackout_bar.png'}")
 
-    print(f"Завантаження одного зразка s={args.sample} для графіків гілок/вузлів...")
+    print(f"Loading sample s={args.sample} for branch/bus plots...")
     pg = load_powergraph_cascades(args.data, sample_index=slice(args.sample, args.sample + 1))
     plot_branch_flow_vs_capacity(pg, 0, OUT_DIR / "branch_flow_vs_capacity.png")
     plot_node_load(pg, 0, OUT_DIR / "node_loads.png")
-    print(f"  → {OUT_DIR / 'branch_flow_vs_capacity.png'}")
-    print(f"  → {OUT_DIR / 'node_loads.png'}")
-    print("Готово.")
+    print(f"  -> {OUT_DIR / 'branch_flow_vs_capacity.png'}")
+    print(f"  -> {OUT_DIR / 'node_loads.png'}")
+    print("Done.")
     return 0
 
 

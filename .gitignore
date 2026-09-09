@@ -36,6 +36,7 @@ source/grid-mimd/benchmark_results_*.json
 # OS and IDE
 .DS_Store
 Thumbs.db
+.cursor/
 .idea/
 .vscode/
 *.swp
