@@ -20,24 +20,31 @@
 
 ```mermaid
 flowchart TB
-    subgraph Head ["Пристрої 1 — HEAD"]
+    subgraph Head ["Пристрої 1 — HEAD (ноутбук викладача)"]
         H1["python run.py head"]
-        H2["python run.py load --preset lab"]
+        H2["python run.py load — driver"]
+        LCPU["Локальні CPU head<br>raylet + tasks на цій машині"]
         H1 --> H2
+        H2 -->|"chunk-и"| LCPU
     end
 
-    subgraph W1 ["Пристрої 2 — WORKER"]
+    subgraph W1 ["Пристрої 2 — WORKER (Windows)"]
         C1["python run.py client --head IP"]
+        W1CPU["CPU воркера"]
+        C1 --> W1CPU
     end
 
-    subgraph W2 ["Пристрої 3 — WORKER"]
+    subgraph W2 ["Пристрої 3 — WORKER (Debian)"]
         C2["python run.py client --head IP"]
+        W2CPU["CPU воркера<br>напр. 2 ядра Athlon"]
+        C2 --> W2CPU
     end
 
-    H2 -->|"Ray tasks"| C1
-    H2 -->|"Ray tasks"| C2
-    H2 -->|"локальні CPU"| Head
+    H2 -->|"Ray tasks / chunks"| W1CPU
+    H2 -->|"Ray tasks / chunks"| W2CPU
 ```
+
+> **Важливо:** head — не лише «диспетчер». Ray запускає tasks і на **локальних CPU** head (вузол `LCPU`), і на CPU workers. `ray status` показує суму всіх вузлів.
 
 | Роль | Хто запускає | Команда |
 | :--- | :--- | :--- |
@@ -83,14 +90,22 @@ flowchart TD
     CLI["python run.py load"] --> Init["ray.init(address='auto')"]
     Init --> Bench["run_headless_benchmark()"]
     Bench --> Loop["цикл engine.step()"]
-    Loop --> Split["array_split(neutrons, num_workers)"]
+    Loop --> Split["array_split(neutrons, N chunks)<br>N = CPU всього кластера"]
     Split --> Remote["update_neutrons_remote.remote(chunk)"]
-    Remote --> W1["Worker node 1"]
-    Remote --> W2["Worker node 2"]
-    Remote --> WH["Head CPUs"]
-    W1 --> Get["ray.get(futures)"]
+
+    subgraph Cluster ["Ray cluster — усі вузли виконують tasks"]
+        WH["Head: локальні CPU"]
+        W1["Worker 1: CPU"]
+        W2["Worker 2: CPU"]
+    end
+
+    Remote --> WH
+    Remote --> W1
+    Remote --> W2
+
+    WH --> Get["ray.get(futures)"]
+    W1 --> Get
     W2 --> Get
-    WH --> Get
     Get --> Merge["concatenate + метрики k"]
     Merge --> JSON["benchmark_results_ray_grid.json"]
 ```
