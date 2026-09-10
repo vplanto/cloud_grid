@@ -341,4 +341,31 @@ flowchart TB
 
 ---
 
+## Додаток
+
+### A. Правило 3-х невдач (3-Fail Rule)
+
+Якщо після **трьох ітерацій** правки одна й та сама помилка в терміналі не зникає — агент зациклився або контекст отруєний. Далі «виправ ще раз» не допоможе.
+
+| Крок | Дія |
+| :---: | :--- |
+| 1 | **Reset Session** — нова сесія агента без старого чату |
+| 2 | Запис у `DECISIONS.md`: текст помилки, що пробували, гіпотеза причини |
+| 3 | Діагностика **системними інструментами** (не агентом) — залежно від етапу курсу: `python -m traceback`, `htop`, `docker inspect`, `kubectl logs --previous` тощо |
+| 4 | Новий запит до агента — з логом, гіпотезою з п.2 і посиланням на `PLAN.md` |
+
+### B. Git commit hygiene
+
+Активна робота з агентом легко дає десятки дрібних коммітів без змісту. **Один коміт — один пройдений quality gate**, не кожен diff у чаті.
+
+| Після чого | Приклад повідомлення |
+| :--- | :--- |
+| `APPROVE PLAN` | `docs(plan): add initial execution plan for stage 1` |
+| `APPROVE CODE` + smoke-тест у терміналі | `feat(mimd): implement worker chunking and pool execution` |
+| Заповнений `DECISIONS.md` | `docs(decisions): log benchmark results and Amdahl speedup` |
+
+Формат — [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): imperative summary`. Між gate-комітами можна працювати локально без push; перед здачею історія має читатися як ланцюг рішень, а не шум.
+
+---
+
 *Далі:* [Практика 1 — MIMD на ПК (реактор)](./p01_neutron_monte_carlo.md) · [Наскрізний проєкт IEEE-118](./n01_power_grid_project.md)
