@@ -8,111 +8,112 @@
 
 ## 1. Мета роботи
 
-1. Зібрати **міні-кластер з 3 пристроїв** (1 head + 2 workers) у локальній мережі — **без Docker**.
-2. Запустити той самий симулятор нейтронів методом Монте-Карло, але рознести обчислювальні chunk-и через **Ray tasks** на всі вузли.
-3. Порівняти throughput з [практикою 1](./p01_neutron_monte_carlo.md) і зрозуміти **біль гетерогенного Гріда**: різні ОС, слабкі вузли, мережа, серіалізація даних.
+1. Розгорнути **мінікластер із 3 пристроїв** (1 head + 2 workers) у локальній мережі без контейнеризації.
+2. Масштабувати симуляцію Монте-Карло, розподіляючи обчислювальні чанки через **Ray tasks** між усіма вузлами.
+3. Дослідити обмеження гетерогенного Гріда: мережеві затримки, накладні витрати серіалізації в object store та вплив повільних вузлів (stragglers).
 
-Веб-інтерфейс на цьому етапі **не використовується** — лише **batch headless** (профіль HPC/Grid з [лекції 2](./02_hpc_grid_vs_cloud.md)).
+Робота виконується виключно в режимі **batch headless** (профіль HPC/Grid з [лекції 2](./02_hpc_grid_vs_cloud.md)) без вебінтерфейсу.
 
 ---
 
-## 2. Топологія кластера
+## 2. Архітектура та топологія кластера
+
+Кластер об'єднує фізично різні пристрої в єдиний обчислювальний простір через локальну мережу.
 
 ```mermaid
 flowchart TB
-    subgraph Head ["Пристрої 1 — HEAD (ноутбук викладача)"]
-        H1["python run.py head"]
-        H2["python run.py load — driver"]
-        LCPU["Локальні CPU head<br>raylet + tasks на цій машині"]
-        H1 --> H2
-        H2 -->|"chunk-и"| LCPU
+    subgraph Head ["Вузол 1 — HEAD (керуючий ноутбук)"]
+        H1["ray start --head<br>(GCS, Scheduler, Object Store)"]
+        Driver["run.py load<br>(Driver Process)"]
+        HCPU["Локальні ядра CPU<br>(raylet + worker tasks)"]
+        H1 --- Driver
+        Driver -->|"локальні чанки"| HCPU
     end
 
-    subgraph W1 ["Пристрої 2 — WORKER (Windows)"]
-        C1["python run.py client --head IP"]
-        W1CPU["CPU воркера"]
-        C1 --> W1CPU
+    subgraph W1 ["Вузол 2 — WORKER (Windows / WSL2)"]
+        C1["ray start --address=HEAD:PORT"]
+        W1CPU["Ядра CPU воркера"]
+        C1 --- W1CPU
     end
 
-    subgraph W2 ["Пристрої 3 — WORKER (Debian)"]
-        C2["python run.py client --head IP"]
-        W2CPU["CPU воркера<br>напр. 2 ядра Athlon"]
-        C2 --> W2CPU
+    subgraph W2 ["Вузол 3 — WORKER (Debian Linux)"]
+        C2["ray start --address=HEAD:PORT"]
+        W2CPU["Ядра CPU воркера<br>(наприклад, 2 ядра Athlon)"]
+        C2 --- W2CPU
     end
 
-    H2 -->|"Ray tasks / chunks"| W1CPU
-    H2 -->|"Ray tasks / chunks"| W2CPU
+    Driver -->|"віддалені tasks"| W1CPU
+    Driver -->|"віддалені tasks"| W2CPU
 ```
 
-> **Важливо:** head — не лише «диспетчер». Ray запускає tasks і на **локальних CPU** head (вузол `LCPU`), і на CPU workers. `ray status` показує суму всіх вузлів.
+> **Важливий принцип:** Вузол head бере участь в обчисленнях нарівні з іншими. Ray планує задачі як на віддалених воркерах, так і на локальних ядрах процесора head.
 
-| Роль | Хто запускає | Команда |
+| Роль | Призначення | Команда CLI |
 | :--- | :--- | :--- |
-| **Head** | головний у групі (driver + навантаження) | `head` → `load` |
-| **Worker ×2** | два інших пристрої в LAN | `client --head <IP>` |
+| **Head** | Координація кластера (GCS) та запуск навантаження (driver) | `python run.py head`<br>`python run.py load` |
+| **Worker (×2)** | Виконання обчислювальних задач у пулі | `python run.py client --head <HEAD_IP>` |
 
-**Типовий демо-набір викладача:** Linux/WSL ноутбук (head) + Windows ноутбук (worker) + старий Debian headless (worker, 2 ядра Athlon). Це **гетерогенний Грід** — вузли різної потужності; speedup не обов'язково дорівнює 3.
+Гетерогенність означає нерівномірну продуктивність вузлів. Повільний процесор воркера затримує агрегацію результатів усього тику, тому сумарне прискорення суттєво відхиляється від теоретичного $3\times$.
 
 ---
 
-## 3. Вихідний код
+## 3. Вихідний код і механізм розподілу
 
-Каталог: [`source/ray-grid/`](https://github.com/vplanto/cloud_grid/tree/main/source/ray-grid).
+Код розміщено в каталозі [`source/ray-grid/`](https://github.com/vplanto/cloud_grid/tree/main/source/ray-grid):
+- [`run.py`](https://github.com/vplanto/cloud_grid/blob/main/source/ray-grid/run.py) — консольний інтерфейс керування життєвим циклом кластера (`head`, `client`, `load`, `local`, `report`, `status`, `stop`);
+- [`engine.py`](https://github.com/vplanto/cloud_grid/blob/main/source/ray-grid/engine.py) — обчислювальне ядро симуляції, реалізація трьох бекендів і формування метрик.
 
-| Файл | Призначення |
-| :--- | :--- |
-| [`run.py`](https://github.com/vplanto/cloud_grid/blob/main/source/ray-grid/run.py) | CLI: `head`, `client`, `load`, `status`, `stop` |
-| [`engine.py`](https://github.com/vplanto/cloud_grid/blob/main/source/ray-grid/engine.py) | Ядро MC, три backend-и, headless benchmark |
+### 3.1. Порівняння трьох бекендів
 
-### 3.1. Три backend-и (одна фізика)
+Фізична модель нейтронів залишається ідентичною до [source/README.md](https://github.com/vplanto/cloud_grid/blob/main/source/README.md). Змінюється лише механізм паралелізації:
 
-| Backend | Що робить | Аналог |
-| :--- | :--- | :--- |
-| `pool` | `list[dict]` + `multiprocessing.Pool` | [p01](./p01_neutron_monte_carlo.md) |
-| `numpy` | `numpy` structured arrays + `Pool` | SIMD-шар на chunk |
-| `ray` | NumPy chunk-и → `@ray.remote` tasks | **Grid** — chunk-и на всі вузли кластера |
-
-Фізика нейтронів та сама, що в [source/README.md](https://github.com/vplanto/cloud_grid/blob/main/source/README.md). Змінюється лише **шар виконання**.
+| Бекенд | Структура даних | Шар виконання | Контекст використання |
+| :--- | :--- | :--- | :--- |
+| `pool` | `list[dict]` | `multiprocessing.Pool` на 1 машині | Базовий рівень [практики 1](./p01_neutron_monte_carlo.md) |
+| `numpy` | Векторизовані масиви | `numpy` + `multiprocessing.Pool` | SIMD-оптимізація локальних обчислень |
+| `ray` | NumPy structured arrays | `@ray.remote` задачі по всьому кластеру | **Розподілений Грід** (локальні та мережеві вузли) |
 
 ### 3.2. Пресети навантаження
 
-| Пресет | Fast | Slow | Коли використовувати |
+| Пресет | Швидкі нейтрони | Повільні нейтрони | Призначення |
 | :--- | ---: | ---: | :--- |
-| **`lab`** | 50 000 | 20 000 | слабкий вузол (Athlon), перший прогін, 3-node демо |
-| **`control`** | 350 000 | 150 000 | порівняння з p01 |
-| **`extinction`** | 150 000 | 30 000 | режим затухання |
-| **`explosion`** | 600 000 | 300 000 | лише потужний head |
+| **`lab`** | 50 000 | 20 000 | Базовий пресет для кластера (захист слабких воркерів від вичерпання RAM) |
+| **`control`** | 350 000 | 150 000 | Контрольний пресет для співставлення з метриками практики 1 |
+| **`extinction`** | 150 000 | 30 000 | Режим згасання ланцюгової реакції ($k < 1$) |
+| **`explosion`** | 600 000 | 300 000 | Стрес-тест для високопродуктивних вузлів ($k > 1$) |
 
-### 3.3. Граф викликів `load` (backend `ray`)
+### 3.3. Пайплайн кроку симуляції (`backend=ray`)
 
 ```mermaid
 flowchart TD
-    CLI["python run.py load"] --> Init["ray.init(address='auto')"]
-    Init --> Bench["run_headless_benchmark()"]
-    Bench --> Loop["цикл engine.step()"]
-    Loop --> Split["array_split(neutrons, N chunks)<br>N = CPU всього кластера"]
-    Split --> Remote["update_neutrons_remote.remote(chunk)"]
+    Driver["Driver: engine.step()"] --> Split["Розбиття масиву на N частин<br>(N = сумарна кількість CPU кластера)"]
+    Split --> Put["Поміщення чанків у Ray Object Store"]
+    Put --> Tasks["@ray.remote update_neutrons_remote()"]
 
-    subgraph Cluster ["Ray cluster — усі вузли виконують tasks"]
-        WH["Head: локальні CPU"]
-        W1["Worker 1: CPU"]
-        W2["Worker 2: CPU"]
+    subgraph Cluster ["Паралельне виконання на вузлах кластера"]
+        WH["Head CPU Cores"]
+        W1["Worker 1 Cores"]
+        W2["Worker 2 Cores"]
     end
 
-    Remote --> WH
-    Remote --> W1
-    Remote --> W2
+    Tasks --> WH
+    Tasks --> W1
+    Tasks --> W2
 
-    WH --> Get["ray.get(futures)"]
-    W1 --> Get
-    W2 --> Get
-    Get --> Merge["concatenate + метрики k"]
-    Merge --> JSON["benchmark_results_ray_grid.json"]
+    WH --> Fut["Futures (ray.ObjectRef)"]
+    W1 --> Fut
+    W2 --> Fut
+
+    Fut --> Get["ray.get(futures) — бар'єрна синхронізація"]
+    Get --> Reduce["Злиття масивів, розрахунок k-factor"]
+    Reduce --> Out["Оновлений стан реактора / JSON"]
 ```
 
 ---
 
-## 4. Підготовка (на всіх 3 пристроях)
+## 4. Підготовка та локальна верифікація
+
+### 4.1. Встановлення залежностей (на всіх трьох пристроях)
 
 ```bash
 git clone https://github.com/vplanto/cloud_grid.git
@@ -120,316 +121,206 @@ cd cloud_grid
 pip install -r source/requirements.txt
 ```
 
-**Вимоги:**
-- Python **3.10+** (однакова мажорна версія на всіх вузлах);
-- пристрої в **одній LAN** (Wi‑Fi / Ethernet);
-- порт **6379** не заблокований firewall;
-- Windows: рекомендовано **WSL2 Ubuntu** (той самий стек, що на Linux headless).
+**Вимоги до оточення:**
+- Python версії **3.10+** (однакова мажорна версія на всіх пристроях);
+- пряма IP-зв'язність у межах локальної підмережі (LAN / Wi-Fi);
+- відкритий TCP-порт **6379** на вузлі head для підключення воркерів;
+- на Windows рекомендується запускати оточення через **WSL2 Ubuntu**.
 
-Перевірка з worker:
-
+Перевірка доступності head з воркера:
 ```bash
 ping <HEAD_IP>
-# якщо є nc:
 nc -zv <HEAD_IP> 6379
 ```
 
----
+### 4.2. Автономна перевірка на одній машині
 
-## 4.1. Локальна відладка (один ПК, **до** кластера)
-
-Усі помилки в коді, залежностях і пресетах знімаємо **локально** — без Windows, без Debian, без `client`.
+Перед розгортанням у мережі працездатність коду перевіряється автономно. Скрипт послідовно тестує всі три бекенди на локальній системі:
 
 ```bash
 cd source/ray-grid
-python run.py stop          # чистий старт, якщо Ray вже крутився
-python run.py local         # pool → numpy → ray (1 вузол), по 3 кроки
-```
-
-Що перевіряє `local`:
-
-| Крок | Backend | Ray потрібен? | Що ловимо |
-| :---: | :--- | :---: | :--- |
-| 1 | `pool` | ні | ядро MC, multiprocessing |
-| 2 | `numpy` | ні | NumPy structured arrays |
-| 3 | `ray` | так, лише **head на цій машині** | `ray.init`, remote tasks |
-
-Якщо `local` пройшов без traceback — можна йти в мережу.
-
-### Окремі команди (якщо ловите конкретну помилку)
-
-```bash
-# тільки ядро, без Ray — найшвидше
-python run.py load --preset lab --steps 3 --backend pool
-
-# NumPy-шар
-python run.py load --preset lab --steps 3 --backend numpy
-
-# Ray на одному вузлі (head, БЕЗ client)
 python run.py stop
-python run.py head
-python run.py load --preset lab --steps 3 --backend ray
-python run.py status    # має бути 1 node
+python run.py local
 ```
 
-**Не робіть** `client --head 127.0.0.1` на тій самій машині — це імітація worker, не локальний тест.
-
-Після успішного `local` — [§5 інструкція для 3 пристроїв](#5-інструкція-запуску-3-пристрої).
+Успішне завершення команди без traceback підтверджує готовність коду до запуску в розподіленому кластері.
 
 ---
 
-## 5. Інструкція запуску (3 пристрої)
+## 5. Інструкція із запуску кластера
 
-### Крок 1. Head (твій ноутбук)
+### Крок 1. Запуск координатора (Head)
 
+На головному комп'ютері виконайте:
 ```bash
-cd cloud_grid/source/ray-grid
+cd source/ray-grid
 python run.py head
 ```
+Команда виведе LAN IP-адресу вузла (наприклад, `192.168.1.42`).
 
-Запам'ятайте IP з виводу, наприклад `192.168.1.42`.
+### Крок 2. Підключення воркерів (Workers)
 
+На кожному з двох додаткових пристроїв запустіть клієнт, вказавши адресу head:
 ```bash
-python run.py status
-```
-
-### Крок 2. Workers (2 інших пристрої)
-
-**Windows (WSL) або Debian по SSH:**
-
-```bash
-cd cloud_grid/source/ray-grid
+cd source/ray-grid
 python run.py client --head 192.168.1.42
 ```
-
-На headless Debian зручно `tmux`:
-
-```bash
-tmux new -s ray
-python run.py client --head 192.168.1.42
-# Ctrl+B, D — detach
-```
-
-Для слабкого Athlon можна обмежити CPU:
-
+Для малопотужних пристроїв кількість задіяних ядер процесора можна обмежити явно:
 ```bash
 python run.py client --head 192.168.1.42 --num-cpus 2
 ```
 
-### Крок 3. Перевірка кластера (head)
+### Крок 3. Верифікація стану кластера
 
+З термінала head перевірте склад кластера:
 ```bash
 python run.py status
 ```
+У виводі мають відображатися **3 активні вузли (Alive)** та їхня сумарна кількість ядер CPU.
 
-Очікується **3 alive nodes** (head + 2 workers) і сумарна кількість CPU.
+### Крок 4. Запуск розподіленого навантаження
 
-### Крок 4. Навантаження (тільки з head)
-
-**Порядок важливий:**
-
-1. `head` на ноуті (крок 1) — вже зроблено.
-2. **Два** `client` на **інших** машинах (крок 2) — або запустіть їх зараз.
-3. `load` на head — з `--wait-nodes 3` або без нього.
-
-Якщо workers ще не підключені, `--wait-nodes 3` **чекає** (до 180 с) і показує підказку.  
-Підключати `client` **можна поки load чекає** — у другому терміналі на Windows/Debian.
+Запуск розрахунків виконується виключно з вузла head. Параметр `--wait-nodes 3` гарантує, що драйвер дочекається підключення обох воркерів перед початком бенчмарку:
 
 ```bash
-# варіант A: workers УЖЕ підключені (ray status → 3 nodes)
-python run.py load --preset lab --steps 30
-
-# варіант B: workers підключите зараз (load чекатиме)
+# Базовий розрахунок на 30 кроків
 python run.py load --preset lab --steps 30 --wait-nodes 3
 
-# варіант C: тільки head, без мережі (1 node) — для перевірки
-python run.py load --preset lab --steps 30
-# БЕЗ --wait-nodes 3
-
-# порівняння pool / numpy / ray (ray автоматично бере CPU всього кластера)
-python run.py load --preset lab --steps 15 --compare --wait-nodes 3
+# Порівняльний прогін трьох бекендів (pool, numpy, ray)
+python run.py load --preset lab --steps 30 --compare --wait-nodes 3
 ```
 
-Без `--workers` backend `ray` використовує **сумарні CPU всіх вузлів**; `pool` і `numpy` — лише локальні ядра head.
+Результати фіксуються у файлі [`source/ray-grid/benchmark_results_ray_grid.json`](https://github.com/vplanto/cloud_grid/blob/main/source/ray-grid/benchmark_results_ray_grid.json).
 
-Результат: [`source/ray-grid/benchmark_results_ray_grid.json`](https://github.com/vplanto/cloud_grid/blob/main/source/ray-grid/benchmark_results_ray_grid.json) — референсний JSON у git (як [`mimd_pc`](../source/mimd-pc/benchmark_results_mimd_pc.json) для p01).
+### Крок 5. Зупинка процесів
 
-**Перегенерувати і закомітити референс:**
-
-```bash
-cd source/ray-grid
-python run.py load --preset lab --steps 30 --backend ray
-# після перевірки:
-git add source/ray-grid/benchmark_results_ray_grid.json
-git commit -m "Update p02 Ray grid reference benchmark"
-```
-
-Інші прогони (`benchmark_results_local_smoke.json` тощо) лишаються поза git (див. `.gitignore`).
-
-### Крок 5. Зупинка
-
-На кожному вузлі (коли лаба завершена):
-
+Після завершення вимірювань зупиніть Ray-демони на кожному пристрої:
 ```bash
 python run.py stop
 ```
 
 ---
 
-## 5.1. Демо на парі: «Ось локальна машина — ось Грід»
+## 5.1. Еталонні результати: MIMD (p01) vs Ray Grid (p02)
 
-На майстер-класі показуємо **два JSON поруч** — не як чесний bake-off, а як **історію курсу**: етап 1 (один ПК) → етап 2 (Ray-кластер). Студенти бачать цифри; викладач проговорює контекст.
-
+Консольна команда для зіставлення звітів двох практик:
 ```bash
-cd source/ray-grid
 python run.py report --demo
-# ASCII English in terminal (no mojibake). Optional copy for slides:
-python run.py report --demo --demo-file benchmark_demo.txt
 ```
 
-Текст українською для слайдів — у таблиці нижче (термінал часто ламає UTF-8).
+### Порівняльна таблиця прогонів
 
-### Референсні результати (перший прогін викладача)
-
-| | **Етап 1 — локально** | **Етап 2 — Грід (Ray)** |
+| Параметр | Етап 1 — Один ПК (MIMD) | Етап 2 — Розподілений Грід (Ray) |
 | :--- | :--- | :--- |
-| **Де** | один ноутбук | head + 1 worker *(репетиція: 2 nodes на одному IP)* |
-| **Код** | `source/mimd-pc/app.py` | `source/ray-grid/run.py load` |
-| **JSON** | `benchmark_results_mimd_pc.json` | `benchmark_results_ray_grid.json` |
-| **Паралелізм** | `multiprocessing.Pool`, 8 воркерів | Ray tasks, 32 CPU (2 nodes) |
-| **Нейтрони** | 350 000 fast + 150 000 slow | 50 000 fast + 20 000 slow (`lab`) |
-| **Кроків** | 30 | 30 |
-| **Статус** | STABLE_RUN | STABLE_RUN |
-| **Загальний час** | **19.79 с** | **2.08 с** |
-| **Середній крок** | **659 мс** | **69 мс** |
-| **Throughput** | **123 863 част./с** | **164 078 част./с** |
+| **Виконавчий файл** | `source/mimd-pc/app.py` | `source/ray-grid/run.py load` |
+| **Файл метрик** | `benchmark_results_mimd_pc.json` | `benchmark_results_ray_grid.json` |
+| **Конфігурація** | 1 вузол, 8 локальних воркерів | 2 вузли, 32 сумарних ядра CPU |
+| **Модель паралелізму** | `multiprocessing.Pool` | Ray tasks через Object Store |
+| **Початкове навантаження** | 350k швидких + 150k повільних (`control`) | 50k швидких + 20k повільних (`lab`) |
+| **Кількість кроків** | 30 | 30 |
+| **Підсумковий стан** | STABLE_RUN | STABLE_RUN |
+| **Загальний час виконання** | **19.79 с** | **2.08 с** |
+| **Середній час кроку** | **659 мс** | **69 мс** |
+| **Пропускна здатність** | **123 863 часток/с** | **164 078 часток/с** |
 
-`report --demo` також показує: локально довше за wall-clock **~9.5×** (інше навантаження); throughput Грід/локально **~1.32×**.
-
-### Що сказати студентам (30 секунд)
-
-1. **«Ось локальна машина»** — p01, один ПК, `Pool.map`, важкий пресет (500k нейтронів), 30 кроків.
-2. **«Ось Грід»** — p02, Ray розносить chunk-и; `ray status` — кілька вузлів, сумарні CPU.
-3. **«Ось результати»** — два JSON. Грід **коротший за час** (2 с vs 20 с), але пресет **легший** — це не чесне змагання 1:1.
-4. **Висновок:** один метод MC, різний **шар виконання** (Pool → Ray). Далі — Docker, щоб вузли були однакові.
-
-> Після підключення **справжніх** Windows + Debian workers оновіть праву колонку таблиці й знову `python run.py report --demo`.
+**Інженерні висновки зіставлення:**
+- Різниця у загальному часі виконання зумовлена суттєво меншим пресетом `lab` у порівнянні з `control`.
+- Throughput розподіленого кластера зростає на $1.32\times$, попри наявність мережевих затримок та серіалізації.
+- Мережеві накладні витрати та очікування найповільнішого вузла (straggler effect) компенсуються лише за умови достатнього обсягу обчислень на один переданий чанк.
 
 ---
 
 ## 6. Завдання для практичного виконання
 
-### Завдання 1. Збірка кластера 1 + 2
+### Завдання 1. Розгортання кластера та фіксація топології
+1. Запустіть вузол `head` та приєднайте два зовнішні вузли `client` згідно з [розділом 5](#5-інструкція-із-запуску-кластера).
+2. Зафіксуйте вивід команди `python run.py status`, який підтверджує присутність 3 активних вузлів.
 
-1. Підніміть `head` на головному пристрої.
-2. Підключіть **два** `client` з інших машин.
-3. Зробіть скрін або копію виводу `python run.py status` (3 nodes).
+### Завдання 2. Проведення розподіленого бенчмарку
+1. Виконайте розрахунок на 30 кроків:
+   ```bash
+   python run.py load --preset lab --steps 30 --wait-nodes 3 --backend ray
+   ```
+2. Зафіксуйте з підсумкового файлу `benchmark_results_ray_grid.json`:
+   - загальний час розрахунку (`total_execution_time_sec`);
+   - середню тривалість кроку (`avg_step_time_ms`);
+   - пропускну здатність (`throughput_particles_per_sec`);
+   - кількість зафіксованих вузлів та ядер CPU (`cluster.nodes`, `cluster.cpus`).
 
-### Завдання 2. Batch-прогін
+### Завдання 3. Порівняльний аналіз бекендів
+1. Запустіть повне порівняння трьох бекендів на вузлі head за наявності підключених воркерів:
+   ```bash
+   python run.py load --preset lab --steps 30 --compare --wait-nodes 3
+   ```
+2. Заповніть підсумкову таблицю:
 
-```bash
-python run.py load --preset lab --steps 30 --wait-nodes 3 --backend ray
-```
-
-Занотуйте:
-- `total_execution_time_sec`;
-- `avg_step_time_ms`;
-- `throughput_particles_per_sec`;
-- `cluster.nodes` і `cluster.cpus` з JSON.
-
-### Завдання 3. Порівняння з p01
-
-```bash
-python run.py report
-# або явно:
-python run.py report \
-  --baseline ../mimd-pc/benchmark_results_mimd_pc.json \
-  --candidate benchmark_results_ray_grid.json
-```
-
-Для **чесного** порівняння throughput спочатку зніміть p02 з тим самим пресетом, що p01:
-
-```bash
-python run.py load --preset control --steps 30 --backend pool   # аналог p01 на head
-python run.py load --preset control --steps 30 --backend ray --wait-nodes 3
-```
-
-### Завдання 3 (таблиця)
-
-Запустіть на head (можна без workers):
-
-```bash
-python run.py load --preset lab --steps 30 --compare
-```
-
-Заповніть таблицю:
-
-| Backend | $T_{\text{total}}$ (с) | neutrons/sec | Примітка |
+| Бекенд | $T_{\text{total}}$ (с) | Часток/сек | Характер навантаження |
 | :--- | :--- | :--- | :--- |
-| p01 `Pool` (практика 1) | | | `benchmark_results_mimd_pc.json` |
-| `pool` (p02) | | | той самий алгоритм, новий раннер |
-| `numpy` | | | NumPy structured arrays |
-| `ray` (3 nodes) | | | мережа + слабкий вузол |
+| `pool` (локальний) | | | `multiprocessing.Pool` на ядрах head |
+| `numpy` (локальний) | | | SIMD-векторизація на ядрах head |
+| `ray` (3 вузли) | | | Розподілений запуск через LAN |
 
-**Важливо:** 3 вузли **не гарантують** speedup > 1. Зафіксуйте, чи був приріст — і чому ні, якщо його не було.
+3. Зіставте отримані метрики з файлом практики 1 за допомогою генератора звіту:
+   ```bash
+   python run.py report
+   ```
 
-### Завдання 4. «Біль Гріда» (короткий звіт)
-
-Відповідь 3–5 реченнями:
-- що налаштовували на Windows / Debian;
-- чи була різниця версій Python або пакетів;
-- що серіалізується при відправці chunk на інший вузол;
-- чому Docker на наступному етапі знімає частину цього болю.
+### Завдання 4. Аналіз феномену «болю Гріда» (письмовий звіт)
+Дайте стислі відповіді (3–5 речень) на питання:
+1. З якими несумісностями оточення ви зіткнулися під час підключення різних ОС (Windows, Linux, WSL)?
+2. Які накладні витрати виникають під час серіалізації чанка нейтронів і передачі його через мережевий сокет?
+3. Чому наявність повільного вузла в пулі може знизити загальну швидкість кластера нижче рівня одного потужного комп'ютера?
+4. Які з цих проблем автоматично вирішує перехід на контейнеризацію Docker на наступному етапі курсу?
 
 ---
 
-## 7. Типові проблеми
+## 7. Типові несправності та їх усунення
 
-| Симптом | Що перевірити |
-| :--- | :--- |
-| Worker не підключається | `ping`, firewall, правильний `--head IP`, head слухає `0.0.0.0:6379` |
-| `client --head 127.0.0.1` на head | **заборонено** — це не окремий вузол; Ray конфліктує по портах 10019+ |
-| `Only 1 node` у `load --wait-nodes 3` | workers не запущені або інша підмережа Wi‑Fi |
-| WSL2 не бачить LAN | mirrored networking / head на Windows-host IP |
-| OOM на старому сервері | `--preset lab`, `--num-cpus 2` на worker |
-| `ray` повільніший за `pool` на 1 ПК | overhead object store; на 1 машині це нормально |
+| Проблема | Ймовірна причина | Спосіб усунення |
+| :--- | :--- | :--- |
+| Воркер не може підключитися | Мережева ізоляція або закритий порт | Перевірити доступність через `ping` та відкрити порт `6379` у брандмауері |
+| Помилка `Only 1 node` при `--wait-nodes 3` | Воркери не стартували вчасно або перебувають в іншій підмережі | Перевірити коректність IP-адреси head та статус підключення Wi-Fi |
+| Помилка конфлікту портів на одній машині | Виклик `client --head 127.0.0.1` на head | Заборонено створювати воркер на loopback-інтерфейсі head; використовуйте інший ПК |
+| Підмережа WSL2 не бачить локальну LAN | Ізольований віртуальний адаптер NAT у Windows | Налаштувати `mirrored networking` у `.wslconfig` або підключатися до IP Windows-хоста |
+| Переповнення оперативної пам'яті (OOM) на воркері | Завеликий початковий масив частинок | Застосувати пресет `--preset lab` та обмежити ядра через `--num-cpus 2` |
+| Бекенд `ray` повільніший за `pool` на 1 машині | Накладні витрати Ray Object Store | На одній машині IPC-пам'ять створює додатковий оoverhead; перевага Ray проявляється в мережі |
 
 ---
 
 ## 8. Контрольні питання
 
 <details markdown="1">
-<summary><b>1. Чому на етапі 2 ми свідомо не використовуємо Docker?</b></summary>
+<summary><b>1. Чому на цьому етапі кластер розгортається без використання Docker?</b></summary>
 
-Щоб відчути біль Гріда «до контейнерів»: різні версії Python, ручний `pip install` на кожному вузлі, мережа, firewall. Docker на [етапі 3](./index.md) дає однакове середовище на всіх машинах.
+Мета полягає в практичному зіткненні з типовими викликами традиційних Грід-систем: конфліктами версій Python, ручним керуванням залежностями, конфігурацією firewall та мережевою ізоляцією. Контейнеризація Docker на наступному етапі покликана продемонструвати розв'язання саме цих проблем.
 </details>
 
 <details markdown="1">
-<summary><b>2. Чим Ray task відрізняється від multiprocessing.Pool.map?</b></summary>
+<summary><b>2. Яка принципова різниця між Ray task та multiprocessing.Pool.map?</b></summary>
 
-`Pool.map` працює на **одній** машині в межах локального fork/spawn. Ray tasks можуть виконуватися на **будь-якому вузлі кластера**; дані chunk-ів проходять через object store і мережу.
+`Pool.map` обмежений пам'яттю та ядрами одного фізичного комп'ютера через системні виклики `fork`/`spawn`. Ray tasks є мережево-прозорими: планувальник розподіляє їх між будь-якими вузлами кластера, передаючи аргументи та результати через розподілене сховище об'єктів (Plasma Object Store).
 </details>
 
 <details markdown="1">
-<summary><b>3. Чому слабкий Athlon може знизити загальний throughput кластера?</b></summary>
+<summary><b>3. Як слабкий вузол (straggler) уповільнює роботу всього кластера?</b></summary>
 
-Найповільніший вузол обмежує batch: driver чекає на `ray.get()` найповільніших tasks (straggler). Це типова проблема гетерогенного Grid — на відміну від однорідного HPC-кластера з Slurm/DRF.
+Кожен крок симуляції вимагає бар'єрної синхронізації `ray.get()`. Якщо два швидкі вузли порахують свої чанки за 10 мс, а третій слабкий вузол виконуватиме свій чанк 100 мс, увесь кластер простоюватиме в очікуванні останнього результату.
 </details>
 
 <details markdown="1">
-<summary><b>4. Чому MC залишається batch workload, а не interactive API?</b></summary>
+<summary><b>4. Чому симуляція Монте-Карло належить до batch-навантажень, а не до інтерактивних сервісів?</b></summary>
 
-Користувач не чекає відповідь на кожен нейтрон; метрика успіху — throughput (particles/sec), а не P99 одного HTTP-запиту. Детальніше — [лекція 2, розділ 4](./02_hpc_grid_vs_cloud.md#розділ-4-місток-до-наскрізного-проєкту-монте-карло).
+Цільовою метрикою симуляції є загальна швидкість обробки масиву часток за одиницю часу (throughput), а не мінімальна затримка відповіді на поодинокий клієнтський запит (latency).
 </details>
 
 <details markdown="1">
-<summary><b>5. Що робить пресет lab і коли його застосовувати?</b></summary>
+<summary><b>5. Чому пресет lab є пріоритетним для першого запуску в гетерогенній мережі?</b></summary>
 
-`lab` — ~70k початкових нейтронів замість 500k+ у `control`. Призначений для слабких вузлів і першого мережевого прогону, щоб кластер не впав по RAM/CPU до демонстрації ідеї Grid.
+Пресет `lab` оперує пулом у 70 000 часток проти 500 000 у `control`. Це запобігає аварійному завершенню слабких вузлів через нестачу оперативної пам'яті під час серіалізації даних на етапі налаштування кластера.
 </details>
 
 ---
 
-## Reading
+## Література
 
 📄 Moritz et al., [*Ray: A Distributed Framework for Emerging AI Applications*](https://www.usenix.org/conference/osdi18/presentation/moritz) (OSDI 2018) — §2–3: tasks, distributed object store.
