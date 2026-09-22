@@ -10,27 +10,32 @@
     "initial_slow": 20000,
     "preset": "lab",
     "total_steps_executed": 30,
-    "total_fissions": 84318,
-    "total_absorbed": 141855,
+    "total_fissions": 84550,
+    "total_absorbed": 142873,
     "total_escaped": 0,
-    "final_active_neutrons": 33398,
+    "final_active_neutrons": 32758,
     "final_status": "STABLE_RUN",
     "cluster": {
       "connected": true,
-      "nodes": 1,
+      "nodes": 2,
       "cpus": 16,
       "node_details": [
         {
-          "node_id": "cf32ef30",
-          "ip": "10.67.151.16",
-          "cpus": 16
+          "node_id": "ca5a23d9",
+          "ip": "192.168.88.17",
+          "cpus": 8
+        },
+        {
+          "node_id": "f2bd6597",
+          "ip": "192.168.88.17",
+          "cpus": 8
         }
       ]
     },
     "metrics": {
-      "total_execution_time_sec": 1.013,
-      "avg_step_time_ms": 33.71,
-      "throughput_particles_per_sec": 339473.8
+      "total_execution_time_sec": 28.5406,
+      "avg_step_time_ms": 950.96,
+      "throughput_particles_per_sec": 12078.6
     }
   }
 }

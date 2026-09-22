@@ -6,20 +6,44 @@ Course: Cloud and Grid Systems
 
 from __future__ import annotations
 
+import importlib.util
 import json
-import sys
 import math
 import os
 import random
+import subprocess
+import sys
 import time
 from multiprocessing import Pool, cpu_count
 
 import numpy as np
 
-try:
-    import ray
-except ImportError:  # pragma: no cover - optional until ray install
-    ray = None
+
+def _is_ray_supported() -> bool:
+    """Check if ray is installed and CPU supports its compiled instructions (AVX)."""
+    spec = importlib.util.find_spec("ray")
+    if spec is None:
+        return False
+    try:
+        # Probe ray in a child process to protect from SIGILL (Illegal Instruction)
+        # on older CPUs without AVX (e.g. AMD Athlon II / Phenom / Core 2 Duo).
+        res = subprocess.run(
+            [sys.executable, "-c", "import ray"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+        )
+        return res.returncode == 0
+    except Exception:
+        return False
+
+
+ray = None
+if _is_ray_supported():
+    try:
+        import ray
+    except Exception:
+        ray = None
 
 NEUTRON_DTYPE = np.dtype(
     [
@@ -37,7 +61,7 @@ PRESETS = {
         "fuel_mass": 50,
         "n_fast": 50_000,
         "n_slow": 20_000,
-        "description": "Легкий пресет для слабких вузлів (Athlon, старий сервер)",
+        "description": "Легкий пресет для малопотужних вузлів (2 ядра, старий ноутбук)",
     },
     "control": {
         "fuel_mass": 50,
@@ -502,7 +526,10 @@ class ReactorSimulationEngine:
 
     def _step_ray(self, fuel_ratio, base_seed):
         if ray is None:
-            raise RuntimeError("Ray is not installed. Run: pip install 'ray[default]'")
+            raise RuntimeError(
+                "Ray is not available or incompatible with this CPU (requires AVX instructions). "
+                "Use backend='pool'/'numpy' or pass --skip-ray."
+            )
         if not ray.is_initialized():
             ray.init(address="auto", ignore_reinit_error=True)
 
@@ -630,7 +657,10 @@ def run_headless_benchmark(
         backends = (backend,)
 
     if "ray" in backends and ray is None:
-        raise RuntimeError("Ray backend requested but ray is not installed")
+        raise RuntimeError(
+            "Ray backend requested but unavailable: ray is not installed or CPU lacks AVX instructions. "
+            "Use --skip-ray or backend='pool'/'numpy'."
+        )
 
     if "ray" in backends:
         if not ray.is_initialized():

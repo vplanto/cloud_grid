@@ -53,7 +53,23 @@ def _is_loopback(host: str) -> bool:
     return host in ("127.0.0.1", "localhost", "::1")
 
 
+def _ensure_ray_available():
+    sys.path.insert(0, str(SCRIPT_DIR))
+    import engine
+
+    if engine.ray is None:
+        print(
+            "ПОМИЛКА: Ray недоступний на цій системі.\n"
+            "         Можлива причина: процесор не підтримує набір інструкцій AVX (наприклад, старі Athlon/Phenom/Core 2),\n"
+            "         або бібліотека не встановлена. Запуск 'ray start' призведе до збою 'Помилкова інструкція' (SIGILL).\n"
+            "         Використовуйте комп'ютер із підтримкою AVX або запустіть локальний тест: python run.py local --skip-ray",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
 def cmd_head(args):
+    _ensure_ray_available()
     lan_ip = args.node_ip or detect_lan_ip()
     cmd = [
         "ray",
@@ -83,6 +99,7 @@ def cmd_head(args):
 
 
 def cmd_client(args):
+    _ensure_ray_available()
     local_ip = detect_lan_ip()
     if _is_loopback(args.head):
         print(
@@ -337,9 +354,15 @@ def cmd_local(args):
     print(f"Steps per backend: {args.steps}")
     print()
 
+    import engine
+
     backends = ["pool", "numpy"]
     if not args.skip_ray:
-        backends.append("ray")
+        if engine.ray is None:
+            print("[УВАГА] Ray недоступний або несумісний із цим процесором (відсутні інструкції AVX).")
+            print("        Пропускаємо Ray backend, тестуємо лише pool та numpy.")
+        else:
+            backends.append("ray")
 
     for idx, backend in enumerate(backends):
         if backend == "ray":
