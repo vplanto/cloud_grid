@@ -1,0 +1,42 @@
+version: "3.8"
+
+# ==============================================================================
+# Docker Compose: Monte Carlo Reactor Simulation (Stage 3: Docker & Web)
+# Demonstrates: Containerization, Port Mapping, cgroups Resource Limits, Bridge Network
+# ==============================================================================
+
+services:
+  reactor-sim:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cloud-grid/reactor-sim:stage3
+    container_name: reactor-sim-service
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - SIM_WORKERS=4
+      - SIM_FUEL=50
+    # Resource constraints enforced via Linux cgroups (CPU throttling & OOM limits)
+    deploy:
+      resources:
+        limits:
+          cpus: "2.00"
+          memory: 512M
+        reservations:
+          cpus: "1.00"
+          memory: 256M
+    networks:
+      - grid-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+networks:
+  grid-net:
+    driver: bridge

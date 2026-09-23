@@ -1,0 +1,2 @@
+# Minimal requirements for Containerized Monte Carlo Simulation Service
+numpy>=1.24.0
