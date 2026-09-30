@@ -372,21 +372,24 @@ curl -s http://localhost:8080/api/metrics | jq .
 
 #### Альтернатива: локальне виконання розрахунків у Docker без веб-сервера (Ad-hoc CLI Execution)
 
-Якщо потрібно запустити обчислювальний рушій або разовий бенчмарк всередині контейнера без запуску дашборда і фонового веб-сервера, використовуйте одноразовий контейнер (`--rm`):
+Якщо потрібно запустити обчислювальний рушій або разовий бенчмарк всередині контейнера без запуску дашборда і фонового веб-сервера, використовуйте одноразовий контейнер (`--rm`).
+
+Оскільки у нашому `Dockerfile` зафіксовано інструкцію `ENTRYPOINT ["python", "app.py"]`, будь-які аргументи в кінці команди передаються як параметри до `app.py`. Щоб виконати довільний скрипт Python, точку входу необхідно явно перевизначити через `--entrypoint python`:
 
 ```bash
 docker run --rm -it \
+  --entrypoint python \
   -v $(pwd):/app \
   -w /app \
   cloud-grid/reactor-sim:stage3 \
-  python -c "
+  -c "
 from app import ReactorSimulationEngine
 engine = ReactorSimulationEngine(num_workers=4)
 state = engine.step()
 print('Tick:', state['tick'], '| Neutrons:', state['active_neutrons'], '| k_eff:', state['k_factor'])
 "
 ```
-Контейнер виконає обчислення і буде негайно знищений рантаймом (`--rm`), не залишаючи сміття у системі.
+Контейнер виконає розрахунок і буде негайно знищений рантаймом (`--rm`), не залишаючи сміття у системі.
 
 ---
 
@@ -405,7 +408,7 @@ docker stats reactor-sim-service
 ```bash
 curl -X POST http://localhost:8080/api/batch \
   -H "Content-Type: application/json" \
-  -d '{"steps": 25}' | jq .
+  -d '{"steps": 2}' | jq .
 ```
 Зафіксуйте час виконання кроку під час тротлінгу процесора.
 
@@ -415,23 +418,59 @@ curl -X POST http://localhost:8080/api/batch \
 
 У [лекції 3](./03_isolation_mechanics.md) ми розглядали нестисливість оперативної пам'яті. Перевірте дію механізму OOM на практиці.
 
-1. Запустіть тестовий контейнер із жорстким дефіцитом пам'яті (64 МБ):
+1. Запустіть тестовий контейнер на окремому порту `8081` із жорстким дефіцитом пам'яті (64 МБ):
 ```bash
 docker run --rm -it \
+  -p 8081:8080 \
   --memory=64m \
   cloud-grid/reactor-sim:stage3 \
   --workers 4
 ```
-2. Виконайте скидання з великою кількістю частинок через сусідній термінал (або запустіть скрипт виділення пам'яті).
-3. Спостерігайте, як ядро хоста миттєво надсилає сигнал `SIGKILL`:
-```text
-Killed
+
+2. У сусідньому терміналі надішліть команду на ініціалізацію 3 000 000 нейтронів, що значно перевищує ліміт пам'яті:
+```bash
+curl -X POST http://localhost:8081/api/reset \
+  -H "Content-Type: application/json" \
+  -d '{"n_fast": 2000000, "n_slow": 1000000}'
 ```
-4. Перевірте код повернення процесу:
+
+*(Або виконайте швидкий прямий тест виділення 200 МБ в один рядок із відключеним Swap):*
+```bash
+docker run --rm -it \
+  --memory=64m \
+  --memory-swap=64m \
+  --entrypoint python \
+  cloud-grid/reactor-sim:stage3 \
+  -c "bytearray(200 * 1024 * 1024)"
+```
+
+> [!NOTE]
+> **Пастка файлу підкачки (Swap) у cgroups:**
+> Якщо вказати лише `--memory=64m`, Docker за замовчуванням дозволяє контейнеру використовувати ще стільки ж пам'яті у файлі підкачки (`--memory-swap=128m`). Тому виділення 100 МБ успішно проходить за рахунок скидання сторінок на диск у Swap (`echo $?` поверне `0`).
+> Щоб гарантувати миттєве спрацювання OOM Killer при перевищенні фізичної RAM, потрібно або вирівняти ліміт підкачки з пам'яттю (`--memory-swap=64m`), або виділити масив, що перевищує сумарний ліміт (200+ МБ, як у тесті з 3 млн частинок).
+
+3. Спостерігайте за поведінкою контейнера:
+Контейнер раптово та мовчки аварійно завершить роботу. Сигнал `SIGKILL` (код 9) не перехоплюється процесом, тому Python навіть не встигає згенерувати `MemoryError` чи вивести помилку у термінал.
+
+4. Перевірте статус завершення та логи ядра Linux:
+
+* **Код повернення процесу:**
 ```bash
 echo $?
-# Результат: 137 (128 + 9 = примусове вбивство через SIGKILL)
+# Результат: 137 (128 + 9 = примусове знищення процесу ядром через SIGKILL)
 ```
+
+* **Системний журнал ядра Linux (dmesg):**
+Оскільки рішення про ліквідацію процесу ухвалює планувальник пам'яті ядра (`cgroups memcg`), факт спрацювання OOM фіксується в кільцевому буфері ядра хоста:
+```bash
+sudo dmesg -T | grep -i oom
+```
+Ви побачите запис ядра:
+```text
+[oom-kill:constraint=CONSTRAINT_MEMCG... task=python, uid=10001]
+Memory cgroup out of memory: Killed process (python) total-vm:... anon-rss:63172kB
+```
+Зверніть увагу: процес було ліквідовано рівно на позначці `anon-rss: 63172kB` (~63.2 МБ), що відповідає жорсткій стелі `--memory=64m`.
 
 ---
 
@@ -441,23 +480,28 @@ echo $?
 
 ```bash
 # 1. Запуск розрахунку локально (Bare-Metal)
-cd ../mimd-pc
-python app.py --headless --workers 4
+cd source/mimd-pc
+python app.py --headless --workers 2
 
-# 2. Запуск аналогічного розрахунку всередині контейнера
+# 2. Запуск розрахунку всередині контейнера (адаптовано під ліміт cgroups 512M)
 docker exec -it reactor-sim-service python -c "
-import time, json
+import time
 from app import ReactorSimulationEngine
-engine = ReactorSimulationEngine(num_workers=4)
-engine.reset_params({'fuel_mass': 50, 'n_fast': 350000, 'n_slow': 150000})
+engine = ReactorSimulationEngine(num_workers=2)
+engine.reset_params({'fuel_mass': 50, 'n_fast': 150000, 'n_slow': 50000, 'num_workers': 2})
 t0 = time.perf_counter()
-for _ in range(20):
+for _ in range(10):
     engine.step()
-print('Docker 20 steps elapsed:', round(time.perf_counter() - t0, 3), 's')
+print('Docker 10 steps elapsed:', round(time.perf_counter() - t0, 3), 's')
 "
+# Очікуваний вивід (ThinkPad T495, 2 воркери):
+# Docker 10 steps elapsed: 4.848 s (середній час ~485 мс/крок для 200k частинок)
 ```
 
-Заповніть підсумкову таблицю зіставлення результатів для захисту лабораторної роботи.
+> [!NOTE]
+> **Чому зменшено обсяг вибірки для бенчмарку в контейнері:**
+> На хостовій машині (Bare-Metal) доступно 8–16 ГБ RAM, тому 500 000 частинок обробляються без перешкод. Але контейнер `reactor-sim-service` у `docker-compose.yml` жорстко обмежений стелею **`memory: 512M`**. 
+> Виділення 500 000 Python-словників разом із чергами IPC вимагає `~670 МБ` віртуальної пам'яті (`total-vm: 669128kB`), що призводить до негайної ліквідації через OOM Killer. Тому всередині контейнера використовується розмір вибірки 200 000 частинок (`150k + 50k`), що гарантовано вкладається в ліміти cgroups.
 
 ---
 
@@ -470,11 +514,11 @@ print('Docker 20 steps elapsed:', round(time.perf_counter() - t0, 3), 's')
 Для створення портативного архіву образу безпосередньо з локального кешу Docker Engine використовуйте команду `docker save`:
 
 ```bash
-# Збереження образу з одночасним стисненням через gzip (економить до 75% трафіку)
-docker save cloud-grid/reactor-sim:stage3 | gzip -9 > reactor-sim.tar.gz
+# Збереження образу у tar-архів
+docker save -o reactor-sim.tar cloud-grid/reactor-sim:stage3
 
 # Перевірте створений файл
-ls -lh reactor-sim.tar.gz
+ls -lh reactor-sim.tar
 ```
 
 #### 5.2. Імітація публікації на Docker Hub (локальний OCI Registry)
@@ -498,15 +542,15 @@ docker pull localhost:5000/cloud-grid/reactor-sim:stage3
 
 #### 5.3. Перенесення та розгортання на домашній сервер / NAS (`docker load`)
 
-Передайте стиснений архів на віддалений сервер або NAS (Synology, QNAP, TrueNAS, Raspberry Pi) через захищений протокол `scp`:
+Передайте архів на віддалений сервер або NAS (Synology, QNAP, TrueNAS, Raspberry Pi) через захищений протокол `scp`:
 
 ```bash
 # 1. Передача архіву на NAS через мережу
-scp reactor-sim.tar.gz admin@<NAS_IP>:/volume1/docker/
+scp reactor-sim.tar admin@<NAS_IP>:/volume1/docker/
 
 # 2. Підключення через SSH до NAS та завантаження образу в локальний Docker
 ssh admin@<NAS_IP>
-docker load < /volume1/docker/reactor-sim.tar.gz
+docker load < /volume1/docker/reactor-sim.tar
 
 # 3. Перевірте, що образ з'явився у списку на NAS
 docker images | grep reactor-sim
