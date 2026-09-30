@@ -82,41 +82,46 @@ flowchart LR
 
 ### 2. Динаміка передачі: шлях крізь мережевий стек
 
+**Відправник (хост A).** Дані спускаються стеком зверху вниз; кожен шар додає свій заголовок.
+
 ```mermaid
 sequenceDiagram
     autonumber
-    box rgb(30, 41, 59) Вузол-відправник (Хост A)
-        participant AppA as L7 App
-        participant TlsA as L6 TLS
-        participant TcpA as L4/L5 TCP & Socket
-        participant IpA as L3 IP
-        participant NicA as L2/L1 NIC
-    end
-    box rgb(15, 23, 42) Фізичний зв'язок
-        participant Wire as Кабель / Мережа
-    end
-    box rgb(30, 41, 59) Вузол-отримувач (Хост B)
-        participant NicB as L2/L1 NIC
-        participant IpB as L3 IP
-        participant TcpB as L4/L5 TCP & Socket
-        participant TlsB as L6 TLS
-        participant AppB as L7 App
-    end
+    participant App as L7 App
+    participant Tls as L6 TLS
+    participant Tcp as L4/L5 TCP & Socket
+    participant Ip as L3 IP
+    participant Nic as L2/L1 NIC
+    participant L1 as L1 Кабель / мережа
 
-    Note over AppA, NicA: ІНКАПСУЛЯЦІЯ (збирання матрьошки)
-    AppA->>TlsA: 1. Тіло запиту: {"order_id": 42}
-    TlsA->>TcpA: 2. + TLS Record (Шифрування)
-    TcpA->>IpA: 3. + TCP заголовок (Порти джерела/призначення)
-    IpA->>NicA: 4. + IP заголовок (IP-адреси)
-    NicA->>Wire: 5. + Ethernet кадри (MAC-адреси + перевірка CRC)
+    Note over App, Nic: Інкапсуляція (збирання матрьошки)
+    App->>Tls: Тіло запиту: {"order_id": 42}
+    Tls->>Tcp: + TLS Record (шифрування)
+    Tcp->>Ip: + TCP заголовок (порти джерела/призначення)
+    Ip->>Nic: + IP заголовок (IP-адреси)
+    Nic->>L1: + Ethernet кадр (MAC-адреси, CRC)
+```
 
-    Wire->>NicB: Електричні / оптичні імпульси
+Між хостами — лише фізичний канал (L1): електричні або оптичні імпульси, без зміни логіки стеку. Комутатори й маршрутизатори на шляху знімають і знову накладають L2/L3, але для кінцевих вузлів це виглядає як безперервна доставка кадрів.
 
-    Note over NicB, AppB: ДЕКАПСУЛЯЦІЯ (розбирання матрьошки)
-    NicB->>IpB: 6. Знято L2 MAC (перевірка адреси локального інтерфейсу)
-    IpB->>TcpB: 7. Знято L3 IP (маршрутизація до мережевого стеку)
-    TcpB->>TlsB: 8. Знято L4 TCP (відновлення черги сокета)
-    TlsB->>AppB: 9. Розшифровано L6 TLS -> передача у процес
+**Отримувач (хост B).** Той самий ланцюг у зворотному порядку: зняття заголовків і передача байтів у сокет процесу.
+
+```mermaid
+sequenceDiagram
+    autonumber 6
+    participant L1 as L1 Кабель / мережа
+    participant Nic as L2/L1 NIC
+    participant Ip as L3 IP
+    participant Tcp as L4/L5 TCP & Socket
+    participant Tls as L6 TLS
+    participant App as L7 App
+
+    Note over L1, Nic: Кадр з фізичного каналу (імпульси L1)
+    Note over Nic, App: Декапсуляція (розбирання матрьошки)
+    Nic->>Ip: Знято L2 MAC (перевірка адреси локального інтерфейсу)
+    Ip->>Tcp: Знято L3 IP (доставка в мережевий стек)
+    Tcp->>Tls: Знято L4 TCP (відновлення черги сокета)
+    Tls->>App: Розшифровано L6 TLS → процес
 ```
 
 ---

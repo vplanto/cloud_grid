@@ -251,7 +251,7 @@ flowchart TD
 
     CP_Core -.->|"xDS API (gRPC)"| Envoy1
     CP_Core -.->|"xDS API (gRPC)"| Envoy2
-    Envoy1 ==="Шифрований mTLS тунель"=== Envoy2
+    Envoy1 <==>|Шифрований mTLS тунель| Envoy2
 ```
 
 1. **Data Plane (Площина даних):**
