@@ -645,6 +645,7 @@ docker run -d \
   rayproject/ray:2.9.0-py311 \
   ray start --address='<HEAD_IP>:6379' --block
 ```
+
 *(Замініть `<HEAD_IP>` на реальну LAN IP-адресу вашого ПК, наприклад `192.168.1.100`).*
 
 > [!TIP]
