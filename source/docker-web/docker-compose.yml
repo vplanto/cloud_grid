@@ -1,5 +1,3 @@
-version: "3.8"
-
 # ==============================================================================
 # Docker Compose: Monte Carlo Reactor Simulation (Stage 3: Docker & Web)
 # Demonstrates: Containerization, Port Mapping, cgroups Resource Limits, Bridge Network
