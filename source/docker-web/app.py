@@ -792,7 +792,7 @@ class SimulationRequestHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format, *args):
         # Silence verbose per-request HTTP logs in production/docker
-        if "/api/step" in (args[0] if args else ""):
+        if args and isinstance(args[0], str) and "/api/step" in args[0]:
             return
         super().log_message(format, *args)
 
