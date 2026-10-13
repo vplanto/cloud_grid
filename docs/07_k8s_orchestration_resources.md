@@ -11,6 +11,13 @@
 
 ---
 
+## Базові пререквізити
+
+Перед вивченням лекції рекомендується опрацювати базові поняття та піраміду абстракцій Kubernetes (від Pod та pause-контейнера до Workload Controllers, Service Discovery та PVC):
+👉 **[07_k8s_orchestration_prerequisites.md](07_k8s_orchestration_prerequisites.md)**
+
+---
+
 ## Питання для розминки
 
 <details markdown="1">
