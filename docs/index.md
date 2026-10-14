@@ -84,7 +84,7 @@ hub: true
 | **3** | **захист 1** | — | Захист **етапів 1–2:** `grid-mimd/app.py`, speedup-бенчмарк, Ray | **КТ 1** |
 | **4** | майстер-клас 3 | [Практика 3: Контейнеризація у Dockerfile та WebGL Dashboard / API](./p03_docker_web.md) — **Етап 3 (Docker & Web):** воркери, WebGL Dashboard / REST API | Контейнеризація сервісів, `docker-compose.yml`, API | — |
 | **5** | **захист 2** | — | Захист **етапу 3:** відтворюваний запуск `docker-compose up` | **КТ 2** |
-| **6** | майстер-клас 4 | **Етап 4 (Kubernetes):** Job/Deployment з образу етапу 3, retries / heartbeats | Запуск обчислень IEEE-118 у K8s-кластері (minikube/kind) | — |
+| **6** | майстер-клас 4 | [Практика 4: Оркестрація Kubernetes](./p04_k8s_orchestration.md) — **Етап 4 (Kubernetes):** Job/Deployment з образу етапу 3, retries / heartbeats | Запуск обчислень IEEE-118 у K8s-кластері (minikube/k3s) | — |
 | **7** | **захист 3** | — | Захист **етапу 4:** K8s-запуск, аналіз продуктивності | **КТ 3** |
 | **8** | майстер-клас 5 | **Етап 5 (Chaos & FinOps):** симуляція аварій (SIGKILL воркерів, OOM / Exit Code 137), Jaeger OpenTracing | Впровадження відмовостійкості, профілювання P99 затримки | — |
 | **9** | **захист 4** | — | Захист **етапу 5:** стійкість при вбивстві нод, аналіз логів і спанів | **КТ 4** |
@@ -115,7 +115,7 @@ hub: true
 
 </div>
 
-Демонстраційний код реактора: [практика 1](./p01_neutron_monte_carlo.md) — `source/mimd-pc/`; [практика 2](./p02_ray_grid.md) — `source/ray-grid/`; [практика 3](./p03_docker_web.md) — `source/docker-web/`. Датасет і скрипти PowerGraph — у `source/dataset_scripts/`.
+Демонстраційний код реактора: [практика 1](./p01_neutron_monte_carlo.md) — `source/mimd-pc/`; [практика 2](./p02_ray_grid.md) — `source/ray-grid/`; [практика 3](./p03_docker_web.md) — `source/docker-web/`; [практика 4](./p04_k8s_orchestration.md) — `source/k8s/`. Датасет і скрипти PowerGraph — у `source/dataset_scripts/`.
 
 ---
 
