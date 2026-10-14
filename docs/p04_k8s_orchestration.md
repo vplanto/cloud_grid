@@ -566,38 +566,49 @@ reactor-batch-monte-carlo   Failed          0/4           22s        22s
 
 #### 1. Діагностика інциденту
 
-Перевірте логи подів, які запускав Job:
+Спроба переглянути логи воркерів завершується несподіванкою:
 ```bash
 # Якщо налаштовано аліас:
 kubectl logs -l workload=monte-carlo-trial --tail=20
 
-# Або напряму через Minikube (з обов'язковим роздільником --):
+# Або напряму через Minikube:
 minikube kubectl -- logs -l workload=monte-carlo-trial --tail=20
 ```
 
-Очікуваний вивід (Traceback помилки):
+Вивід у терміналі:
 ```text
-[reactor-batch-monte-carlo-x9p2q] 🚀 Воркер стартував. Cores=2, Steps=20
-Traceback (most recent call last):
-  File "<string>", line 16, in <module>
-KeyError: 'k'
+No resources found in default namespace.
 ```
 
-Перевірте системні події об'єкта Job:
+**Куди зникли поди?** Щоб дізнатися правду, звертаємося до системного опису самого об'єкта Job:
 ```bash
 kubectl describe job reactor-batch-monte-carlo | grep -A 8 "Events:"
 ```
 
 Очікуваний вивід:
 ```text
-Warning  BackoffLimitExceeded  15s   job-controller  Job has reached the specified backoff limit (3 failures)
+Events:
+  Type     Reason                Age   From            Message
+  ----     ------                ----  ----            -------
+  Normal   SuccessfulCreate      63s   job-controller  Created pod: reactor-batch-monte-carlo-nsm26
+  Normal   SuccessfulCreate      63s   job-controller  Created pod: reactor-batch-monte-carlo-7pn5n
+  Normal   SuccessfulDelete      44s   job-controller  Deleted pod: reactor-batch-monte-carlo-7pn5n
+  Normal   SuccessfulDelete      44s   job-controller  Deleted pod: reactor-batch-monte-carlo-nsm26
+  Warning  BackoffLimitExceeded  42s   job-controller  Job has reached the specified backoff limit
 ```
+
+> [!IMPORTANT]
+> **Пастка завершення Job:** Зверніть увагу на події `SuccessfulDelete`. Коли контролер Job фіксує аварію і вичерпує ліміт спроб `BackoffLimitExceeded`, він **автоматично видаляє всі аварійні поди**, очищаючи ресурси кластера. Тому після фінального падіння прочитати їхні логи постфактум неможливо — запит за селектором міток повертає `No resources found`.
 
 #### 2. Аналіз першопричини (Root Cause Analysis)
 
 - **Статус `FailureTarget` та `Failed`:** Коли процес усередині пода завершується з ненульовим кодом помилки (Exit Code 1 через `KeyError: 'k'`), Kubelet згідно з директивою `restartPolicy: OnFailure` перезапускає контейнер.
 - **Механізм `backoffLimit`:** Після 3 невдалих спроб (`backoffLimit: 3`) контролер Job припиняє витрачати ресурси кластера, переводить завдання у проміжний стан `FailureTarget`, а потім остаточно маркує як `Failed`.
-- **Незмінність (Immutability) об'єктів Job:** На відміну від Deployment, поля специфікації запущеного чи проваленого Job у Kubernetes не підлягають оновленню на льоту. Спроба виконати `kubectl apply` для оновленого маніфесту Job завершиться помилкою API Server. Щоб перезапустити завдання, його обов'язково потрібно спочатку видалити.
+- **Незмінність (Immutability) специфікації Job:** На відміну від Deployment, специфікація шаблону пода (`spec.template`) в об'єктах Job після створення стає строго незмінною. Спроба виконати `kubectl apply` без попереднього видалення завершується відхиленням з боку API Server:
+  ```text
+  The Job "reactor-batch-monte-carlo" is invalid: spec.template: ...: field is immutable
+  ```
+  Єдиний коректний спосіб перезапустити пакетне завдання — спочатку видалити старий об'єкт (`kubectl delete job ...`), а потім застосувати виправлений маніфест.
 
 #### 3. Виправлення: перехід на `job-batch-fixed.yaml`
 
@@ -626,11 +637,13 @@ kubectl get jobs -w
 
 Очікуваний вивід успішного завершення (4/4):
 ```text
-NAME                        STATUS      COMPLETIONS   DURATION   AGE
-reactor-batch-monte-carlo   Running     0/4           5s         5s
-reactor-batch-monte-carlo   Running     1/4           18s        18s
-reactor-batch-monte-carlo   Running     2/4           19s        19s
-reactor-batch-monte-carlo   Complete    4/4           36s        36s
+NAME                        STATUS               COMPLETIONS   DURATION   AGE
+reactor-batch-monte-carlo   Running              0/4           5s         5s
+reactor-batch-monte-carlo   Running              1/4           43s        43s
+reactor-batch-monte-carlo   Running              2/4           45s        45s
+reactor-batch-monte-carlo   Running              3/4           94s        94s
+reactor-batch-monte-carlo   SuccessCriteriaMet   3/4           95s        95s
+reactor-batch-monte-carlo   Complete             4/4           95s        95s
 ```
 
 Перевірте логи паралельних обчислювальних воркерів:
@@ -667,38 +680,79 @@ kubectl get pods -l app=reactor-web
 
 ---
 
-### 6.2. Тест 2: Спрацювання Liveness Probe при зависанні контейнера
+### 6.2. Тест 2: Спрацювання Liveness Probe при відмові сервісу
 
-Що станеться, якщо процес не помер фізично, але завис у Deadlock або перестає відповідати на системні запити?
+Що станеться, якщо сервіс перестає відповідати на системні перевірки здоров'я (deadlock або внутрішній збій)?
 
-Підключимося всередину одного з подів і штучно покладемо веб-сервер, відправивши йому сигнал зупинки:
+> [!NOTE]
+> **Чому не спрацює `kill -STOP 1` зсередини контейнера:** У ядрі Linux головний процес простору імен (PID 1) захищений від сигналів `SIGSTOP` та `SIGKILL`, надісланих із власного контейнера. Тому спроби «заморозити» PID 1 через `kubectl exec ... kill -STOP 1` ядро тихо ігнорує.
+
+Імітуємо відмову перевірки здоров'я штатно — підмінивши шлях Liveness Probe на неіснуючий ендпоінт на льоту:
 
 ```bash
+# 1. Тимчасово підміняємо ендпоінт livenessProbe на поламаний шлях:
+kubectl patch deployment reactor-web-deployment --type='json' -p='[{"op": "replace", "path": "/spec/template/spec/containers/0/livenessProbe/httpGet/path", "value": "/api/broken-health"}]'
+
+# 2. Отримуємо ім'я актуального поду
 POD_NAME=$(kubectl get pods -l app=reactor-web -o jsonpath='{.items[0].metadata.name}')
 
-# Примусово зупиняємо процес всередині контейнера через сигнал SIGSTOP
-kubectl exec -it $POD_NAME -- kill -STOP 1
-
-# Спостерігаємо за подіями пода
+# 3. Спостерігаємо за системними подіями (чекаємо ~30 секунд: periodSeconds: 10 × failureThreshold: 3)
 kubectl describe pod $POD_NAME
 ```
 
-Через 15–20 секунд у розділі `Events` з'явиться повідомлення:
-```
-Warning  Unhealthy  10s   kubelet  Liveness probe failed: HTTP probe failed with statuscode: 503 (or connection refused)
-Normal   Killing    10s   kubelet  Container reactor-service failed liveness probe, will be restarted
-Normal   Pulled     8s    kubelet  Container image "reactor-web:latest" already present on machine
-Normal   Created    8s    kubelet  Created container reactor-service
-Normal   Started    7s    kubelet  Started container reactor-service
+Через 25–30 секунд у розділі `Events` з'явиться послідовність з трьох невдалих проб та примусової ліквідації контейнера:
+```text
+Events:
+  Type     Reason     Age               From               Message
+  ----     ------     ----              ----               -------
+  Normal   Scheduled  31s               default-scheduler  Successfully assigned default/reactor-web-deployment-79f7f46b7b-cwcjk to minikube
+  Warning  Unhealthy  1s (x3 over 21s)  kubelet            spec.containers{reactor-service}: Liveness probe failed: HTTP probe failed with statuscode: 404
+  Normal   Killing    1s                kubelet            spec.containers{reactor-service}: Container reactor-service failed liveness probe, will be restarted
+  Normal   Pulled     0s (x2 over 30s)  kubelet            spec.containers{reactor-service}: Container image "reactor-web:latest" already present on machine and can be accessed by the pod
+  Normal   Created    0s (x2 over 30s)  kubelet            spec.containers{reactor-service}: Container created
+  Normal   Started    0s (x2 over 30s)  kubelet            spec.containers{reactor-service}: Container started
 ```
 
-Kubelet самостійно ліквідував завислий контейнер і підняв свіжу копію. Лічильник `RESTARTS` у команді `kubectl get pods` збільшиться на `1`.
+Kubelet самостійно ліквідував завислий/несправний контейнер і підняв свіжу копію.
+
+Поверніть коректний ендпоінт здоров'я:
+```bash
+kubectl patch deployment reactor-web-deployment --type='json' -p='[{"op": "replace", "path": "/spec/template/spec/containers/0/livenessProbe/httpGet/path", "value": "/api/health"}]'
+```
+
+> [!NOTE]
+> **Чому старий под зникає (`NotFound`):** Повернення патчу до `/api/health` змінює конфігурацію Deployment і запускає плановий Rolling Update. Старий под із поламаною конфігурацією знищується, а замість нього розгортається новий здоровий под. Перевірте список актуальних подів командою `kubectl get pods -l app=reactor-web`.
 
 ---
 
 ### 6.3. Тест 3: Механізм ретраїв та Exponential Backoff у Job
 
-Застосуємо експериментальний маніфест `job-chaos-retry.yaml`, у якому код воркера штучно падає з кодом виходу `1`:
+Для дослідження поведінки при збоях у маніфесті `job-chaos-retry.yaml` налаштовано механізм повторних спроб та вбудовано штучний аварійний вихід:
+
+- **`backoffLimit: 4`** у секції `spec` — максимальна кількість повторних спроб перед тим, як контролер визнає завдання проваленим.
+- **`restartPolicy: OnFailure`** у `spec.template.spec` — вказівка Kubelet перезапускати под при ненульовому коді виходу.
+- **`sys.exit(1)`** у блоці `args` — штучний збій програми (імітація мережевого таймауту або segfault).
+
+```yaml
+spec:
+  completions: 1
+  backoffLimit: 4            # Ліміт повторних спроб (Exponential Backoff)
+  activeDeadlineSeconds: 300 # Загальний захисний тайм-аут (5 хвилин)
+  template:
+    spec:
+      restartPolicy: OnFailure # Перезапуск контейнера лише у разі збою
+      containers:
+        - name: chaos-worker
+          image: reactor-web:latest
+          command: ["python", "-c"]
+          args:
+            - |
+              import sys, time
+              print("💥 SIMULATED FATAL ERROR: Імітація аварійного збою воркера!")
+              sys.exit(1)    # Аварійний код виходу провокує ретрай контролера
+```
+
+Застосуйте маніфест до кластера:
 
 ```bash
 kubectl apply -f job-chaos-retry.yaml
@@ -707,11 +761,24 @@ kubectl apply -f job-chaos-retry.yaml
 kubectl get pods -l experiment=failure-injection -w
 ```
 
-Зверніть увагу на час між повторними запусками:
-- Спроба 1: негайний перезапуск (0 с).
-- Спроба 2: затримка 10 с.
-- Спроба 3: затримка 20 с.
-- Спроба 4: затримка 40 с.
+Очікуваний вивід (динаміка станів у реальному часі):
+```text
+NAME                            READY   STATUS             RESTARTS     AGE
+reactor-chaos-retry-job-bqjr2   1/1     Running            1 (1s ago)   5s
+reactor-chaos-retry-job-bqjr2   0/1     Error              1 (3s ago)   7s
+reactor-chaos-retry-job-bqjr2   0/1     CrashLoopBackOff   1 (14s ago)  20s
+reactor-chaos-retry-job-bqjr2   1/1     Running            2 (14s ago)  20s
+reactor-chaos-retry-job-bqjr2   0/1     Error              2 (16s ago)  22s
+reactor-chaos-retry-job-bqjr2   0/1     CrashLoopBackOff   2 (24s ago)  46s
+reactor-chaos-retry-job-bqjr2   1/1     Running            3 (24s ago)  46s
+reactor-chaos-retry-job-bqjr2   0/1     Error              3 (26s ago)  48s
+```
+
+Зверніть увагу на динаміку колонки `AGE` та стан **`CrashLoopBackOff`**:
+- **Спроба 1 (AGE 5–7 с):** негайний перший ретрай після збою (затримка 0–1 с).
+- **Спроба 2 (AGE ~20 с):** Kubelet робить паузу перед запуском на **10 с** (`CrashLoopBackOff`).
+- **Спроба 3 (AGE ~46 с):** інтервал очікування подвоюється до **~20–24 с**.
+- **Спроба 4:** наступна пауза зростає вдвічі до **~40 с**.
 
 Цей механізм називається **експоненційним відкочуванням (Exponential Backoff)**. Він захищає кластер від колапсу: якби 1000 поламаних подів перезапускалися щомілісекунди, вони спалили б процесори планувальника та перевантажили базу даних `etcd`.
 
@@ -721,6 +788,43 @@ kubectl get pods -l experiment=failure-injection -w
 ```bash
 kubectl delete -f job-chaos-retry.yaml
 ```
+
+### 6.4. Очищення ресурсів та завершення роботи з Minikube
+
+Після завершення практикуму необхідно звільнити виділені системні ресурси (2 CPU та 3 ГБ RAM хоста).
+
+#### 1. Очищення об'єктів практикуму в кластері
+
+```bash
+# Видалення створеного Deployment та Service
+kubectl delete -f deployment-fixed.yaml
+kubectl delete -f service.yaml
+
+# Перевірка відсутності залишкових подів
+kubectl get pods
+```
+
+#### 2. Керування життєвим циклом кластера Minikube
+
+Оберіть один із двох варіантів залежно від подальших планів:
+
+- **Варіант 1: Тимчасова зупинка (Рекомендовано для продовження роботи)**  
+  Зупиняє контейнер кластера і миттєво звільняє оперативну пам'ять і процесор хоста. Усі завантажені образи (`reactor-web:latest`) та налаштування зберігаються. Наступний запуск через `minikube start` займе лише кілька секунд:
+  ```bash
+  minikube stop
+  ```
+
+- **Варіант 2: Повне видалення кластера (Звільнення дискового простору)**  
+  Повністю знищує контейнер кластера Minikube, скидає внутрішню базу `etcd` та мережеві мости. Використовуйте, якщо практикум завершено або кластер перейшов у нестабільний стан і його потрібно розгорнути з нуля:
+  ```bash
+  minikube delete
+  ```
+
+- **Глибоке очищення кешу та конфігурацій (за потреби):**  
+  ```bash
+  # Видаляє всі профілі Minikube та завантажений кеш бінарників kubectl
+  minikube delete --all --purge
+  ```
 
 ---
 
@@ -735,10 +839,31 @@ kubectl delete -f job-chaos-retry.yaml
 2. **Створення маніфесту пакетного розрахунку `source/grid-k8s/grid-job.yaml`:**
    - Запуск масової паралельної генерації аварійних сценаріїв $N-k$ (відключення ліній електропередач та підстанцій).
    - Налаштування паралелізму: `parallelism: 4`, `completions: 8`.
-   - Збереження результатів розрахунку (список топ-критичних ліній за ризиком каскадного блекауту).
-3. **Порівняльний бенчмарк (Bare-Metal vs Docker Compose vs Kubernetes):**
-   - Замір пропускної здатності (кількість обчислених станів за секунду).
-   - Оцінка накладних витрат оркестрації (час старту подів, утилізація CPU).
+   - Збереження фінального звіту обчислень у форматі JSON.
+3. **Збереження бенчмарку `benchmark_results_k8s_grid.json`:**
+   Вивантажте результати виконання пакетного розрахунку з логів завершеного Job або через монтування локального каталогу:
+   ```bash
+   # Збереження підсумкової аналітики пакетного прогону
+   kubectl logs -l workload=grid-contingency-calc --tail=50 > source/grid-k8s/benchmark_results_k8s_grid.json
+   ```
+4. **Порівняльний бенчмарк (Bare-Metal vs Ray Grid vs Kubernetes):**
+   Зіставте отримані метрики з попередніми етапами курсового проєкту:
+   - Локальний мультипроцесинг (Практика 1): [`source/mimd-pc/benchmark_results_mimd_pc.json`](../source/mimd-pc/benchmark_results_mimd_pc.json)
+   - Розподілений грід-кластер Ray (Практика 2/3): [`source/ray-grid/benchmark_results_ray_grid.json`](../source/ray-grid/benchmark_results_ray_grid.json)
+   - Хмарний кластер Kubernetes (Практика 4): `source/grid-k8s/benchmark_results_k8s_grid.json`
+
+| Критерій порівняння | Локальний ПК ([`mimd_pc.json`](../source/mimd-pc/benchmark_results_mimd_pc.json)) | Ray Grid ([`ray_grid.json`](../source/ray-grid/benchmark_results_ray_grid.json)) | Kubernetes Job (`k8s_grid.json`) | Інженерний висновок |
+| :--- | :--- | :--- | :--- | :--- |
+| **Рівень ізоляції** | Спільна пам'ять процесу | Docker (`--net=host`) | **Повна ізоляція подів (cgroups v2 + netns)** | Безпечне мультитендентне середовище |
+| **Паралелізм** | `Pool(processes=8)` | 12 воркерів на 2 хостах | `parallelism: 4`, `completions: 8` | Декларативне регулювання навантаження |
+| **Холодний старт** | **Мінімальний (~0.1 с)** | Середній (~3–5 с на Raylet) | Високий (~5–8 с на планування та Kubelet) | Kubernetes оптимізовано для довгих задач |
+| **Міжпроцесний обмін** | Pipe / Shared Memory | **Plasma Object Store (Zero-Copy)** | Мережевий стек CNI (TCP/IP) | Ray швидший для частих синхронізацій |
+| **Відмовостійкість** | Відсутня (краш зупиняє все) | Ретрай окремих тасок Ray | **Апаратний самозахист: Kubelet, Probes, Exponential Backoff** | Кластер сам відновлюється після збоїв |
+| **Контроль ресурсів** | Неконтрольований (ризик OOM хоста) | Ліміти процесу Python | **Жорсткі квоти (`requests`/`limits`), захист від OOM хоста** | Неможливо покласти сусідні сервіси |
+
+#### Головні висновки для захисту проєкту:
+- **Ray vs Kubernetes:** Ray ідеальний як обчислювальний двигун для швидких ітераційних задач із частим обміном даними (завдяки Plasma Zero-Copy). Kubernetes — це стандарт для надійної оркестрації довгоживучих сервісів та пакетних масових запусків із гарантованою відмовостійкістю і контролем бюджету ресурсів.
+- **Оверхед оркестрації:** Наднадійність Kubernetes має ціну у вигляді накладних секунд на створення подів і комунікацію через CNI, що повністю нівелюється при масштабуванні на тисячі тривалих розрахунків.
 
 ---
 

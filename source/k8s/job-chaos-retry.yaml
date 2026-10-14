@@ -1,0 +1,61 @@
+# ==============================================================================
+# Kubernetes Job: Chaos Engineering & Retries Demonstration
+# Course: Cloud and Grid Systems (Stage 4: Kubernetes Orchestration)
+# ==============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: reactor-chaos-retry-job
+  labels:
+    app.kubernetes.io/name: reactor-chaos-retry
+    experiment: failure-injection
+spec:
+  # Expect 1 successful completion
+  completions: 1
+  # Maximum retry attempts before marking the Job as failed
+  backoffLimit: 4
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        experiment: failure-injection
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: chaos-worker
+          image: reactor-web:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          command: ["python", "-c"]
+          args:
+            - |
+              import os, sys, time, random
+
+              pod_name = os.environ.get("HOSTNAME", "pod-unknown")
+              print(f"[{pod_name}] 🧪 Chaos Worker starting...")
+
+              # Simulate an intermittent infrastructure / transient crash (Exit code 1)
+              # In a real cluster, this simulates flaky networks, transient DB lock, or spot instance evictions
+              marker_file = "/tmp/sim_attempt_counter.txt"
+
+              print(f"[{pod_name}] Simulating transient failure to demonstrate K8s Exponential Backoff...")
+              time.sleep(2)
+
+              # Random failure with 60% probability on early executions
+              # To make it deterministic for demo: Pod failure happens if environment flag FAIL_ONCE is set
+              if os.environ.get("FAIL_TRIGGER", "true") == "true":
+                  # We trigger a deliberate non-zero exit code to invoke kubelet restart/Job controller retry
+                  print(f"[{pod_name}] 💥 SIMULATED FATAL ERROR: Simulated node network timeout / segfault! (Exit code 1)")
+                  sys.exit(1)
+
+              print(f"[{pod_name}] ✅ Recovered and finished computation successfully!")
+              sys.exit(0)

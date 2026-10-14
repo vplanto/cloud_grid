@@ -1,0 +1,20 @@
+# ==============================================================================
+# Kubernetes Service: ClusterIP (Internal DNS) & NodePort (Host Exposure)
+# Course: Cloud and Grid Systems (Stage 4: Kubernetes Orchestration)
+# ==============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: reactor-web-service
+  labels:
+    app.kubernetes.io/name: reactor-web
+spec:
+  # Type NodePort exposes port 30080 on every Kubernetes Node
+  type: NodePort
+  selector:
+    app: reactor-web
+  ports:
+    - name: http
+      port: 8080        # Cluster internal Service Port (http://reactor-web-service:8080)
+      targetPort: 8080  # Target container port
+      nodePort: 30080   # Static external port accessible from host / browser
