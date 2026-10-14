@@ -501,7 +501,7 @@ spec:
               memory: "256Mi"
             limits:
               cpu: "1500m"
-              memory: "512Mi"
+              memory: "512Mi"  # Початковий ліміт (у 5.3 дослідимо кейс аварії Job)
           command: ["python", "-c"]
           args:
             - |
@@ -519,6 +519,7 @@ spec:
               for s in range(1, steps + 1):
                   st = engine.step()
                   if s % 5 == 0 or s == steps:
+                      # Початковий маніфест містить невідповідність ключів API:
                       print(f"[{pod_name}] Крок {s:02d}/{steps}: k_eff={st['k']:.4f}, Поділів={st['fissions']}, dt={st['step_time_ms']:.1f}мс")
 
               total_sec = time.perf_counter() - t0
@@ -537,7 +538,7 @@ spec:
 
 ### 5.2. Запуск та спостереження за обчисленнями
 
-Запустіть маніфест пакетного розрахунку:
+Запустіть початковий маніфест пакетного розрахунку:
 
 ```bash
 kubectl apply -f job-batch.yaml
@@ -550,17 +551,89 @@ kubectl apply -f job-batch.yaml
 kubectl get jobs -w
 ```
 
-Ви побачите, як лічильник `COMPLETIONS` поступово збільшується:
+У консолі з'явиться аварійний вивід:
+```text
+NAME                        STATUS          COMPLETIONS   DURATION   AGE
+reactor-batch-monte-carlo   Running         0/4           7s         7s
+reactor-batch-monte-carlo   Running         0/4           8s         8s
+reactor-batch-monte-carlo   FailureTarget   0/4           20s        20s
+reactor-batch-monte-carlo   Failed          0/4           22s        22s
 ```
-NAME                         COMPLETIONS   DURATION   AGE
-reactor-batch-monte-carlo    0/4           5s         5s
-reactor-batch-monte-carlo    1/4           18s        18s
-reactor-batch-monte-carlo    2/4           19s        19s
-reactor-batch-monte-carlo    4/4           36s        36s
+
+Завдання не дійшло до кінця і перейшло у статус `Failed`.
+
+### 5.3. Інженерний кейс: Діагностика аварії Job (FailureTarget / BackoffLimitExceeded) та виправлення
+
+#### 1. Діагностика інциденту
+
+Перевірте логи подів, які запускав Job:
+```bash
+# Якщо налаштовано аліас:
+kubectl logs -l workload=monte-carlo-trial --tail=20
+
+# Або напряму через Minikube (з обов'язковим роздільником --):
+minikube kubectl -- logs -l workload=monte-carlo-trial --tail=20
+```
+
+Очікуваний вивід (Traceback помилки):
+```text
+[reactor-batch-monte-carlo-x9p2q] 🚀 Воркер стартував. Cores=2, Steps=20
+Traceback (most recent call last):
+  File "<string>", line 16, in <module>
+KeyError: 'k'
+```
+
+Перевірте системні події об'єкта Job:
+```bash
+kubectl describe job reactor-batch-monte-carlo | grep -A 8 "Events:"
+```
+
+Очікуваний вивід:
+```text
+Warning  BackoffLimitExceeded  15s   job-controller  Job has reached the specified backoff limit (3 failures)
+```
+
+#### 2. Аналіз першопричини (Root Cause Analysis)
+
+- **Статус `FailureTarget` та `Failed`:** Коли процес усередині пода завершується з ненульовим кодом помилки (Exit Code 1 через `KeyError: 'k'`), Kubelet згідно з директивою `restartPolicy: OnFailure` перезапускає контейнер.
+- **Механізм `backoffLimit`:** Після 3 невдалих спроб (`backoffLimit: 3`) контролер Job припиняє витрачати ресурси кластера, переводить завдання у проміжний стан `FailureTarget`, а потім остаточно маркує як `Failed`.
+- **Незмінність (Immutability) об'єктів Job:** На відміну від Deployment, поля специфікації запущеного чи проваленого Job у Kubernetes не підлягають оновленню на льоту. Спроба виконати `kubectl apply` для оновленого маніфесту Job завершиться помилкою API Server. Щоб перезапустити завдання, його обов'язково потрібно спочатку видалити.
+
+#### 3. Виправлення: перехід на `job-batch-fixed.yaml`
+
+У каталозі `source/k8s/` створено виправлений маніфест `job-batch-fixed.yaml`:
+- Виправлено назви ключів API об'єкта `ReactorSimulationEngine`: `st['k_factor']`, `st['total_fissions']`, `st['calc_time_ms']`.
+- Збільшено ліміт пам'яті до `1Gi` для стабільного паралельного розрахунку без ризику `OOMKilled`.
+
+```yaml
+            limits:
+              cpu: "1500m"
+              memory: "1Gi"   # Збільшено пам'ять для 500k частинок
+```
+
+Виконайте повний перезапуск пакетного розрахунку:
+
+```bash
+# 1. Обов'язкове видалення невдалого Job (через immutability)
+kubectl delete job reactor-batch-monte-carlo
+
+# 2. Запуск виправленого маніфесту
+kubectl apply -f job-batch-fixed.yaml
+
+# 3. Спостереження за прогресом успішного виконання
+kubectl get jobs -w
+```
+
+Очікуваний вивід успішного завершення (4/4):
+```text
+NAME                        STATUS      COMPLETIONS   DURATION   AGE
+reactor-batch-monte-carlo   Running     0/4           5s         5s
+reactor-batch-monte-carlo   Running     1/4           18s        18s
+reactor-batch-monte-carlo   Running     2/4           19s        19s
+reactor-batch-monte-carlo   Complete    4/4           36s        36s
 ```
 
 Перевірте логи паралельних обчислювальних воркерів:
-
 ```bash
 kubectl logs -l workload=monte-carlo-trial --tail=30 --max-log-requests=6
 ```
