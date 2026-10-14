@@ -152,6 +152,9 @@ minikube kubectl -- get pods
 minikube kubectl -- delete pod test-smoke
 ```
 
+> [!IMPORTANT]
+> **Синтаксичний роздільник `--` у Minikube:** Якщо ви викликаєте клієнт вручну без аліаса, обов'язково ставте подвійний дефіс `--` перед командами (наприклад, `minikube kubectl -- logs ...`). Без нього Minikube перехоплює прапорці (як-от `-l` чи `--tail`) як власні та видає помилку `unknown shorthand flag`. Налаштування `alias kubectl="minikube kubectl --"` або `alias k="minikube kubectl --"` автоматизує підстановку `--`.
+
 #### Варіант Б: k3s / k3d (для користувачів з обмеженою пам'яттю)
 
 ```bash
@@ -537,7 +540,7 @@ spec:
 Запустіть маніфест пакетного розрахунку:
 
 ```bash
-kubectl apply -f source/k8s/job-batch.yaml
+kubectl apply -f job-batch.yaml
 ```
 
 Відстежуйте стан виконання в режимі реального часу:
@@ -625,7 +628,7 @@ Kubelet самостійно ліквідував завислий контей�
 Застосуємо експериментальний маніфест `job-chaos-retry.yaml`, у якому код воркера штучно падає з кодом виходу `1`:
 
 ```bash
-kubectl apply -f source/k8s/job-chaos-retry.yaml
+kubectl apply -f job-chaos-retry.yaml
 
 # Спостерігаємо за спробами перезапуску
 kubectl get pods -l experiment=failure-injection -w
@@ -643,7 +646,7 @@ kubectl get pods -l experiment=failure-injection -w
 
 Видаліть тестовий збійний job:
 ```bash
-kubectl delete -f source/k8s/job-chaos-retry.yaml
+kubectl delete -f job-chaos-retry.yaml
 ```
 
 ---
