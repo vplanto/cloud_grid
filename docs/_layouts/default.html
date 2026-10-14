@@ -3,20 +3,190 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ page.title | default: "Lectures" }}</title>
+  <title>{{ page.title | default: "ONU Cloud & Grid" }}</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.5.0/github-markdown-light.min.css">
 
   <style>
-    /* Центрування сторінки */
+    body,
+    .markdown-body {
+      font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 16px;
+      line-height: 1.65;
+      color: #1a1a1a;
+    }
+
+    .markdown-body pre,
+    .markdown-body code,
+    .markdown-body kbd,
+    .markdown-body samp,
+    pre, code, kbd, samp {
+      font-family: 'IBM Plex Mono', 'Lilex', 'Fira Code', Menlo, Monaco, Consolas, monospace;
+      font-size: 0.9em;
+    }
+
+    .markdown-body code:not(pre code) {
+      padding: 0.2em 0.4em;
+      border-radius: 4px;
+      background-color: rgba(0, 0, 0, 0.05);
+    }
+
+    :root {
+      --content-max: 980px;
+      --content-pad-x: 45px;
+      --content-pad-y: 45px;
+    }
+
+    @media (max-width: 767px) {
+      :root {
+        --content-pad-x: 15px;
+        --content-pad-y: 15px;
+      }
+    }
+
+    @media (min-width: 900px) {
+      :root {
+        --content-max: min(1120px, calc(100vw - 3rem));
+      }
+    }
+
+    @media (min-width: 1280px) {
+      :root {
+        --content-max: min(1240px, calc(100vw - 4rem));
+      }
+    }
+
+    @media (min-width: 1600px) {
+      :root {
+        --content-max: min(1380px, calc(100vw - 6rem));
+      }
+    }
+
+    .page-shell {
+      box-sizing: border-box;
+      width: 100%;
+      max-width: var(--content-max);
+      margin-left: auto;
+      margin-right: auto;
+      padding-left: var(--content-pad-x);
+      padding-right: var(--content-pad-x);
+    }
+
     .markdown-body {
       box-sizing: border-box;
       min-width: 200px;
-      max-width: 980px;
-      margin: 0 auto;
-      padding: 45px;
+      max-width: none;
+      width: 100%;
+      margin: 0;
+      padding-top: var(--content-pad-y);
+      padding-bottom: var(--content-pad-y);
+      padding-left: 0;
+      padding-right: 0;
     }
-    @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+
+    .site-footer {
+      font-size: 0.85em;
+      color: #57606a;
+      border-top: 1px solid #d0d7de;
+      padding-bottom: 30px;
+    }
+
+    .page-hub.page-shell {
+      --content-max: min(56rem, calc(100vw - 2rem));
+    }
+
+    .page-hub h2 {
+      margin-top: 2.25rem;
+      padding-bottom: 0.4rem;
+      border-bottom: 1px solid #d0d7de;
+    }
+
+    .page-hub h3 {
+      margin-top: 1.5rem;
+      margin-bottom: 0.65rem;
+    }
+
+    .page-hub > table,
+    .page-hub table {
+      border: 1px solid #d0d7de;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .page-hub > ul {
+      padding-left: 0;
+      margin-top: 0.5rem;
+    }
+
+    .page-hub > ul > li {
+      list-style: none;
+      margin-bottom: 0.65rem;
+      padding: 0.85rem 1.1rem;
+      background: #f6f8fa;
+      border: 1px solid #d8dee4;
+      border-radius: 8px;
+    }
+
+    .page-hub > ul > li > ul {
+      margin: 0.65rem 0 0;
+      padding-left: 1.15rem;
+    }
+
+    .page-hub > ul > li > ul > li {
+      list-style: disc;
+      margin-bottom: 0.35rem;
+      padding: 0;
+      background: none;
+      border: none;
+      border-radius: 0;
+    }
+
+    .page-hub > ul > li > ul > li:last-child {
+      margin-bottom: 0;
+    }
+
+    .page-hub > ol {
+      padding-left: 0;
+      margin-top: 0.5rem;
+    }
+
+    .page-hub > ol > li {
+      margin-bottom: 0.65rem;
+      padding: 0.85rem 1.1rem;
+      background: #f6f8fa;
+      border: 1px solid #d8dee4;
+      border-radius: 8px;
+      list-style-position: inside;
+    }
+
+    .page-hub .hub-block {
+      margin: 1rem 0 1.25rem;
+      padding: 1rem 1.15rem 1.1rem;
+      background: #f6f8fa;
+      border: 1px solid #d8dee4;
+      border-radius: 8px;
+    }
+
+    .page-hub .hub-block > :first-child {
+      margin-top: 0;
+    }
+
+    .page-hub .hub-block > :last-child {
+      margin-bottom: 0;
+    }
+
+    .page-hub .hub-block > table {
+      margin-top: 0.75rem;
+      width: 100%;
+    }
+
+    .page-hub .hub-block blockquote {
+      margin: 0.75rem 0 0;
+    }
 
     /* Syntax Highlighting for Rouge (GitHub Pages) */
     .highlight { background: #ffffff; }
@@ -93,11 +263,16 @@
   <script type="text/javascript" id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 </head>
 <body>
-  <article class="markdown-body">
+  <article class="markdown-body page-shell{% if page.hub %} page-hub{% endif %}">
     {{ content }}
   </article>
-  <footer style="max-width:980px;margin:0 auto;padding:0 45px 30px;font-size:0.85em;color:#666;border-top:1px solid #eee;">
-    <p><strong>Дисклеймер:</strong> Авторська декларація: Базовий контент, концепцію та архітектуру цього курсу розроблено автором на основі власних лекцій та презентацій. Інструменти штучного інтелекту (LLM) використано виключно як технічний засіб для конвертації форматів (Slides → Markdown) та розгортання текстових тез. Увесь підсумковий текст, архітектурні схеми та код повністю вичитано, верифіковано та затверджено автором.</p>
+  <footer class="site-footer page-shell{% if page.hub %} page-hub{% endif %}">
+    <p>
+      <a href="{{ '/DISCLAIMER.html' | relative_url }}">Декларація курсу</a>
+      · <a href="{{ '/n00_self_work.html' | relative_url }}">Регламент робіт</a>
+      · <a href="{{ '/n01_power_grid_project.html' | relative_url }}">Проєкт IEEE-118</a>
+      · ONU Cloud &amp; Grid
+    </p>
   </footer>
   <script type="module">
     import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';

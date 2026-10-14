@@ -1,0 +1,23 @@
+title: "Грід-системи та технології хмарних обчислень"
+description: "Cloud and Grid engineering course"
+lang: uk
+markdown: kramdown
+highlighter: rouge
+baseurl: "/cloud_grid"
+url: "https://vplanto.github.io"
+
+defaults:
+  - scope:
+      path: ""
+      type: "pages"
+    values:
+      layout: "default"
+  - scope:
+      path: ""
+      type: "posts"
+    values:
+      layout: "default"
+
+exclude:
+  - Gemfile
+  - Gemfile.lock
