@@ -134,8 +134,22 @@ flowchart LR
 # Запуск кластера з драйвером Docker (виділяємо 2 CPU та 3 ГБ RAM)
 minikube start --driver=docker --cpus=2 --memory=3072
 
+# Якщо окремий бінарник kubectl не встановлено, створюємо аліаси до вбудованого в Minikube клієнта:
+alias kubectl="minikube kubectl --"
+alias k="minikube kubectl --"
+
 # Перевірка працездатності вузла кластера
-kubectl get nodes -o wide
+minikube kubectl -- get nodes -o wide
+# або через аліас: k get nodes -o wide
+
+# Smoke-тест: запуск еталонного інфраструктурного контейнера (pause важить ~700 КБ)
+minikube kubectl -- run test-smoke --image=registry.k8s.io/pause:3.9
+
+# Перевірка готовності поду (стан Running)
+minikube kubectl -- get pods
+
+# Видалення тестового поду після перевірки
+minikube kubectl -- delete pod test-smoke
 ```
 
 #### Варіант Б: k3s / k3d (для користувачів з обмеженою пам'яттю)
@@ -252,7 +266,7 @@ spec:
               memory: "256Mi"
             limits:
               cpu: "1000m"
-              memory: "512Mi"
+              memory: "512Mi"  # Початковий ліміт (у 4.6 дослідимо кейс аварії OOMKilled)
           # 1. Startup Probe: захист від передчасного вбивства під час прогріву
           startupProbe:
             httpGet:
@@ -323,23 +337,36 @@ kubectl apply -f service.yaml
 
 Перевірте стан створених ресурсів:
 
-```bash
-# Перегляд стану розгортання
-kubectl get deployments -o wide
+1. **Стан розгортання (Deployment):**
+   ```bash
+   kubectl get deployments -o wide
+   ```
+   Очікуваний вивід:
+   ```text
+   NAME                     READY   UP-TO-DATE   AVAILABLE   AGE   CONTAINERS        IMAGES               SELECTOR
+   reactor-web-deployment   2/2     2            2           23s   reactor-service   reactor-web:latest   app=reactor-web
+   ```
 
-# Перегляд запущених подів та їхніх IP
-kubectl get pods -l app=reactor-web -o wide
+2. **Запущені поди та їхні внутрішні IP-адреси:**
+   ```bash
+   kubectl get pods -l app=reactor-web -o wide
+   ```
+   Очікуваний вивід:
+   ```text
+   NAME                                      READY   STATUS    RESTARTS   AGE   IP           NODE       NOMINATED NODE   READINESS GATES
+   reactor-web-deployment-6c6869b45f-dn7fr   1/1     Running   0          29s   10.244.0.4   minikube   <none>           <none>
+   reactor-web-deployment-6c6869b45f-v76mj   1/1     Running   0          29s   10.244.0.5   minikube   <none>           <none>
+   ```
 
-# Перегляд статусу сервісу та відкритих портів
-kubectl get svc reactor-web-service
-```
-
-Очікуваний вивід:
-```
-NAME                                     READY   STATUS    RESTARTS   AGE   IP           NODE
-reactor-web-deployment-78b9c6f5d8-4f2k1   1/1     Running   0          42s   10.244.0.5   minikube
-reactor-web-deployment-78b9c6f5d8-9m7q2   1/1     Running   0          42s   10.244.0.6   minikube
-```
+3. **Мережевий сервіс та мапінг портів:**
+   ```bash
+   kubectl get svc reactor-web-service
+   ```
+   Очікуваний вивід:
+   ```text
+   NAME                  TYPE       CLUSTER-IP      EXTERNAL-IP   PORT(S)          AGE
+   reactor-web-service   NodePort   10.111.127.48   <none>        8080:30080/TCP   29s
+   ```
 
 ### 4.5. Перевірка доступу до сервісу
 
@@ -360,6 +387,73 @@ curl -s http://localhost:8080/api/metrics | jq .
 ```
 
 Відкрийте в браузері адресу `http://localhost:8080`: перед вами з'явиться інтерактивний WebGL-дашборд симулятора реактора, запущений у відмовостійкому кластері Kubernetes з двома активними репліками.
+
+### 4.6. Інженерний кейс: Аварія OOMKilled (Exit Code 137) та Rolling Update
+
+Під час взаємодії з дашбордом у браузері або надсилання запитів розрахунку тунель `port-forward` може раптово обірватися:
+
+```text
+Handling connection for 8080
+Handling connection for 8080
+...
+E1014 22:11:02.705505   97440 portforward.go:549] "An error occurred forwarding" err="... connect: connection refused" localPort=8080 remotePort=8080
+error: lost connection to pod
+```
+
+#### 1. Діагностика інциденту
+
+Перевірте стан подів у кластері:
+```bash
+kubectl get pods -l app=reactor-web
+```
+
+Зверніть увагу на лічильник `RESTARTS`:
+```text
+NAME                                      READY   STATUS    RESTARTS      AGE
+reactor-web-deployment-6c6869b45f-dn7fr   1/1     Running   1 (48s ago)   2m26s
+```
+
+Дізнайтеся точну причину завершення контейнера через системний опис:
+```bash
+kubectl describe pod -l app=reactor-web | grep -A 8 "Last State:"
+```
+
+Очікуваний вивід діагностики:
+```text
+Last State:     Terminated
+  Reason:       OOMKilled
+  Exit Code:    137
+```
+
+#### 2. Аналіз першопричини (Root Cause Analysis)
+
+- **Код виходу 137 (`128 + 9 = SIGKILL`):** Процес не впав через внутрішній виняток (Exception), а був **примусово ліквідований ядром Linux** через перевищення пам'яті (Out Of Memory).
+- **Причина переповнення:** За замовчуванням у веб-симуляторі генерується **500 000 частинок** (350k швидких + 150k повільних). Пул процесів `multiprocessing.Pool` під час розрахунку серіалізує об'єкти між воркерами через `pickle`. Сумарне споживання пам'яті контейнера сягає ~600 МБ, пробиваючи встановлений у `deployment.yaml` ліміт `512Mi`.
+
+#### 3. Виправлення: перехід на `deployment-fixed.yaml`
+
+У каталозі `source/k8s/` підготовлено виправлений маніфест `deployment-fixed.yaml` зі збільшеним лімітом `memory: 1Gi`:
+
+```yaml
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"   # Збільшено з 512Mi до 1Gi для ліквідації OOMKilled
+```
+
+Застосуйте виправлення до кластера без простою сервісу (Zero-Downtime Rolling Update):
+
+```bash
+kubectl apply -f deployment-fixed.yaml
+
+# Спостереження за плавним переходом на нові поди
+kubectl rollout status deployment/reactor-web-deployment
+```
+
+Завдяки стратегії `RollingUpdate` (`maxSurge: 1`, `maxUnavailable: 0`), контролер Kubernetes спочатку запускає новий под із пам'яттю 1Gi, очікує успішного проходження `readinessProbe`, і лише потім безпечно виводить з експлуатації старий под. Сервіс залишається доступним без жодної секунди downtime.
 
 ---
 
