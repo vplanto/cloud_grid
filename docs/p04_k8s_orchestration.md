@@ -854,7 +854,7 @@ kubectl get pods
 
 | Критерій порівняння | Локальний ПК ([`mimd_pc.json`](../source/mimd-pc/benchmark_results_mimd_pc.json)) | Ray Grid ([`ray_grid.json`](../source/ray-grid/benchmark_results_ray_grid.json)) | Kubernetes Job (`k8s_grid.json`) | Інженерний висновок |
 | :--- | :--- | :--- | :--- | :--- |
-| **Рівень ізоляції** | Спільна пам'ять процесу | Docker (`--net=host`) | **Повна ізоляція подів (cgroups v2 + netns)** | Безпечне мультитендентне середовище |
+| **Рівень ізоляції** | Спільна пам'ять процесу | Docker (`--net=host`) | **Повна ізоляція подів (cgroups v2 + netns)** | Безпечне мультитенантне середовище |
 | **Паралелізм** | `Pool(processes=8)` | 12 воркерів на 2 хостах | `parallelism: 4`, `completions: 8` | Декларативне регулювання навантаження |
 | **Холодний старт** | **Мінімальний (~0.1 с)** | Середній (~3–5 с на Raylet) | Високий (~5–8 с на планування та Kubelet) | Kubernetes оптимізовано для довгих задач |
 | **Міжпроцесний обмін** | Pipe / Shared Memory | **Plasma Object Store (Zero-Copy)** | Мережевий стек CNI (TCP/IP) | Ray швидший для частих синхронізацій |
