@@ -28,8 +28,8 @@ minikube image load reactor-web:latest
 # Для k3s:
 docker save reactor-web:latest | sudo k3s ctr images import -
 
-# Для k3d:
-k3d image import reactor-web:latest
+# 3. Активація збору метрик (Metrics Server у Minikube для уникнення помилок 'Metrics API not available'):
+minikube addons enable metrics-server
 ```
 
 ### 2. Розгортання Web-сервісу (Deployment + Service)
@@ -43,6 +43,10 @@ kubectl apply -f service.yaml
 kubectl get pods -l app=reactor-web -o wide
 kubectl get svc reactor-web-service
 
+# Перевірка метрик навантаження
+kubectl top nodes
+kubectl top pods
+
 # Доступ до дашборду:
 # На Linux:
 curl http://$(minikube ip):30080/api/health
@@ -51,10 +55,10 @@ kubectl port-forward svc/reactor-web-service 8080:8080
 # Відкрити у браузері: http://localhost:8080
 ```
 
-### 3. Запуск пакетного розрахунку Монте-Карло (Job)
+### 3. Запуск пакетного розрахунку Монте-Карло (Job) та збереження результатів
 
 ```bash
-kubectl apply -f job-batch.yaml
+kubectl apply -f job-batch-fixed.yaml
 
 # Спостереження за паралельним виконанням
 kubectl get jobs -w
@@ -62,4 +66,9 @@ kubectl get pods -l workload=monte-carlo-trial
 
 # Перегляд логів розрахунку
 kubectl logs -l workload=monte-carlo-trial --tail=50 -f
+
+# Найпростіший шлях експорту JSON-результатів бенчмарку (без монтування Persistent Volumes):
+kubectl logs -l job-name=powergrid-batch > benchmark_k8s.json
+# або для поточного маніфесту реактора:
+kubectl logs -l workload=monte-carlo-trial --tail=50 > benchmark_k8s.json
 ```

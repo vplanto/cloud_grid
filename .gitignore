@@ -1,6 +1,7 @@
 # Temporary / local tooling
 tmp/
 .agents/
+docs/transcripts/
 
 # Python
 __pycache__/

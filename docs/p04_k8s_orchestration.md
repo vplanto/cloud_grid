@@ -134,6 +134,9 @@ flowchart LR
 # Запуск кластера з драйвером Docker (виділяємо 2 CPU та 3 ГБ RAM)
 minikube start --driver=docker --cpus=2 --memory=3072
 
+# Активація збору метрик для команд моніторингу (kubectl top nodes / pods):
+minikube addons enable metrics-server
+
 # Якщо окремий бінарник kubectl не встановлено, створюємо аліаси до вбудованого в Minikube клієнта:
 alias kubectl="minikube kubectl --"
 alias k="minikube kubectl --"
@@ -141,6 +144,9 @@ alias k="minikube kubectl --"
 # Перевірка працездатності вузла кластера
 minikube kubectl -- get nodes -o wide
 # або через аліас: k get nodes -o wide
+
+# Перевірка збору метрик навантаження вузлів (працює після ініціалізації metrics-server):
+kubectl top nodes
 
 # Smoke-тест: запуск еталонного інфраструктурного контейнера (pause важить ~700 КБ)
 minikube kubectl -- run test-smoke --image=registry.k8s.io/pause:3.9
@@ -151,6 +157,9 @@ minikube kubectl -- get pods
 # Видалення тестового поду після перевірки
 minikube kubectl -- delete pod test-smoke
 ```
+
+> [!TIP]
+> **Активація Metrics Server:** Команда `minikube addons enable metrics-server` розгортає вбудований збирач метрик у системному просторі імен `kube-system`. Без цього кроку виклики `kubectl top nodes` та `kubectl top pods` повертатимуть помилку `error: Metrics API not available`. Ініціалізація збирача займає 15–30 секунд після увімкнення аддону.
 
 > [!IMPORTANT]
 > **Синтаксичний роздільник `--` у Minikube:** Якщо ви викликаєте клієнт вручну без аліаса, обов'язково ставте подвійний дефіс `--` перед командами (наприклад, `minikube kubectl -- logs ...`). Без нього Minikube перехоплює прапорці (як-от `-l` чи `--tail`) як власні та видає помилку `unknown shorthand flag`. Налаштування `alias kubectl="minikube kubectl --"` або `alias k="minikube kubectl --"` автоматизує підстановку `--`.
@@ -840,17 +849,24 @@ kubectl get pods
    - Запуск масової паралельної генерації аварійних сценаріїв $N-k$ (відключення ліній електропередач та підстанцій).
    - Налаштування паралелізму: `parallelism: 4`, `completions: 8`.
    - Збереження фінального звіту обчислень у форматі JSON.
-3. **Збереження бенчмарку `benchmark_results_k8s_grid.json`:**
-   Вивантажте результати виконання пакетного розрахунку з логів завершеного Job або через монтування локального каталогу:
+3. **Збереження бенчмарку `benchmark_k8s.json`:**
+   Найпростіший шлях експорту JSON-результатів бенчмарку — через перенаправлення логів (`kubectl logs -l job-name=powergrid-batch > benchmark_k8s.json`), без обов'язкового монтування складних Persistent Volumes:
    ```bash
-   # Збереження підсумкової аналітики пакетного прогону
+   # Найпростіший експорт підсумкових JSON-метрик безпосередньо з логів Job:
+   kubectl logs -l job-name=powergrid-batch > benchmark_k8s.json
+
+   # Або з вибіркою за міткою навантаження та збереженням у каталог проєкту:
    kubectl logs -l workload=grid-contingency-calc --tail=50 > source/grid-k8s/benchmark_results_k8s_grid.json
    ```
+
+   > [!TIP]
+   > **Експорт результатів без Persistent Volumes:** Після завершення розрахунку поди переходять у стан `Completed`. Вони вивільняють ресурси вузла (RAM/CPU), але Kubelet гарантовано зберігає їхні логи. Перенаправлення потоку виводу `kubectl logs -l job-name=powergrid-batch > benchmark_k8s.json` позбавляє потреби конфігурувати HostPath, `PersistentVolume` та `PersistentVolumeClaim`.
+
 4. **Порівняльний бенчмарк (Bare-Metal vs Ray Grid vs Kubernetes):**
    Зіставте отримані метрики з попередніми етапами курсового проєкту:
    - Локальний мультипроцесинг (Практика 1): [`source/mimd-pc/benchmark_results_mimd_pc.json`](../source/mimd-pc/benchmark_results_mimd_pc.json)
    - Розподілений грід-кластер Ray (Практика 2/3): [`source/ray-grid/benchmark_results_ray_grid.json`](../source/ray-grid/benchmark_results_ray_grid.json)
-   - Хмарний кластер Kubernetes (Практика 4): `source/grid-k8s/benchmark_results_k8s_grid.json`
+   - Хмарний кластер Kubernetes (Практика 4): `benchmark_k8s.json` (або `source/grid-k8s/benchmark_results_k8s_grid.json`)
 
 | Критерій порівняння | Локальний ПК ([`mimd_pc.json`](../source/mimd-pc/benchmark_results_mimd_pc.json)) | Ray Grid ([`ray_grid.json`](../source/ray-grid/benchmark_results_ray_grid.json)) | Kubernetes Job (`k8s_grid.json`) | Інженерний висновок |
 | :--- | :--- | :--- | :--- | :--- |
