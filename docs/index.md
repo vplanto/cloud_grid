@@ -86,7 +86,7 @@ hub: true
 | **5** | **захист 2** | — | Захист **етапу 3:** відтворюваний запуск `docker-compose up` | **КТ 2** |
 | **6** | майстер-клас 4 | [Практика 4: Оркестрація Kubernetes](./p04_k8s_orchestration.md) — **Етап 4 (Kubernetes):** Job/Deployment з образу етапу 3, retries / heartbeats | Запуск обчислень IEEE-118 у K8s-кластері (minikube/k3s) | — |
 | **7** | **захист 3** | — | Захист **етапу 4:** K8s-запуск, аналіз продуктивності | **КТ 3** |
-| **8** | майстер-клас 5 | **Етап 5 (Chaos & FinOps):** симуляція аварій (SIGKILL воркерів, OOM / Exit Code 137), Jaeger OpenTracing | Впровадження відмовостійкості, профілювання P99 затримки | — |
+| **8** | майстер-клас 5 | [Практика 5: Chaos Engineering & FinOps](./p05_chaos_finops.md) — **Етап 5 (Chaos & FinOps):** симуляція аварій (SIGKILL воркерів, OOM / Exit Code 137), Jaeger OpenTracing | Впровадження відмовостійкості, профілювання P99 затримки | — |
 | **9** | **захист 4** | — | Захист **етапу 5:** стійкість при вбивстві нод, аналіз логів і спанів | **КТ 4** |
 | **10** | **фінал** | — | Підсумковий захист: повний Git-репозиторій, FinOps-розрахунок, архітектурна співбесіда | **залік** |
 
@@ -115,7 +115,7 @@ hub: true
 
 </div>
 
-Демонстраційний код реактора: [практика 1](./p01_neutron_monte_carlo.md) — `source/mimd-pc/`; [практика 2](./p02_ray_grid.md) — `source/ray-grid/`; [практика 3](./p03_docker_web.md) — `source/docker-web/`; [практика 4](./p04_k8s_orchestration.md) — `source/k8s/`. Датасет і скрипти PowerGraph — у `source/dataset_scripts/`.
+Демонстраційний код реактора: [практика 1](./p01_neutron_monte_carlo.md) — `source/mimd-pc/`; [практика 2](./p02_ray_grid.md) — `source/ray-grid/`; [практика 3](./p03_docker_web.md) — `source/docker-web/`; [практика 4](./p04_k8s_orchestration.md) — `source/k8s/`; [практика 5](./p05_chaos_finops.md) — `source/chaos-finops/`. Датасет і скрипти PowerGraph — у `source/dataset_scripts/`.
 
 ---
 
