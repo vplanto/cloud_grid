@@ -23,9 +23,11 @@ import argparse
 import json
 import random
 import math
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Any, Optional
 
-from tracer import get_tracer, start_span, inject_trace_context
+from tracer import get_tracer, start_span, inject_trace_context, mark_span_error, flush_telemetry
 
 
 # -----------------------------------------------------------------------------
@@ -79,8 +81,9 @@ def run_poison_pill_experiment(protect_with_dlq: bool = False):
 
                 if task["is_poison"]:
                     # Імітуємо падіння через критичний перерозхід пам'яті (OOM / Exit 137)
-                    span.set_attribute("error", True)
-                    span.set_attribute("exception.type", "OOMKilled_ExitCode_137")
+                    mark_span_error(span, "OOMKilled_ExitCode_137")
+                    if hasattr(span, "record_exception"):
+                        span.record_exception(PoisonPillOOMException(f"OOMKilled_ExitCode_137: Worker {worker_id} exceeded memory.max"))
                     print(f"  [CRASH!] Воркер {worker_id} перевищив ліміт cgroups memory.max!")
                     print(f"  [ЯДРО LINUX] OOM Killer ліквідував воркер (Exit Code 137 / SIGKILL)!")
 
@@ -169,58 +172,119 @@ def run_retry_storm_experiment(strategy: str = "naive"):
     start_time = time.time()
     num_clients = 10
     total_backend_hits = 0
+    cb_blocked = 0
+    hits_lock = threading.Lock()
+    hits_history = []
     client_results = []
+    results_lock = threading.Lock()
 
-    with start_span("chaos.retry_storm_test", {"strategy": strategy}):
-        for client_id in range(1, num_clients + 1):
-            cb = CircuitBreaker() if strategy == "jitter-breaker" else None
-            attempts = 0
-            success = False
+    def simulate_client(client_id: int):
+        nonlocal total_backend_hits, cb_blocked
+        cb = CircuitBreaker() if strategy == "jitter-breaker" else None
+        attempts = 0
+        success = False
 
-            while attempts < 4 and not success:
-                attempts += 1
-                now = time.time() - start_time
+        while attempts < 4 and not success:
+            attempts += 1
+            now = time.time() - start_time
 
-                # Перевірка запобіжника
-                if cb and not cb.allow_request():
-                    # Запобіжник розімкнено: швидкий фейл без навантаження на сервер
-                    time.sleep(0.1)
-                    continue
+            # Перевірка запобіжника
+            if cb and not cb.allow_request():
+                with hits_lock:
+                    cb_blocked += 1
+                # Запобіжник розімкнено: швидкий відкат (fail-fast) без навантаження на мережу
+                time.sleep(0.1)
+                continue
 
+            with hits_lock:
                 total_backend_hits += 1
-                backend_ok = simulate_degraded_backend(now)
 
-                if backend_ok:
-                    success = True
-                    if cb:
-                        cb.record_success()
+            backend_ok = simulate_degraded_backend(now)
+
+            with hits_lock:
+                hits_history.append({
+                    "client": client_id,
+                    "attempt": attempts,
+                    "time": now,
+                    "ok": backend_ok
+                })
+
+            if backend_ok:
+                success = True
+                if cb:
+                    cb.record_success()
+                with results_lock:
                     client_results.append((client_id, attempts, round(now, 3), "SUCCESS"))
+            else:
+                if cb:
+                    cb.record_failure()
+
+                # Пауза перед наступною спробою
+                if strategy == "naive":
+                    # Синхронний Exponential Backoff (без Jitter) -> РЕЗОНАНС!
+                    sleep_time = 0.3 * (2 ** (attempts - 1))
                 else:
-                    if cb:
-                        cb.record_failure()
+                    # Full Jitter: випадковий інтервал від 0 до max_backoff
+                    max_backoff = 0.3 * (2 ** (attempts - 1))
+                    sleep_time = random.uniform(0.05, max_backoff)
 
-                    # Пауза перед наступною спробою
-                    if strategy == "naive":
-                        # Синхронний Exponential Backoff (без Jitter) -> РЕЗОНАНС!
-                        sleep_time = 0.3 * (2 ** (attempts - 1))
-                    else:
-                        # Full Jitter: випадковий інтервал від 0 до max_backoff
-                        max_backoff = 0.3 * (2 ** (attempts - 1))
-                        sleep_time = random.uniform(0.05, max_backoff)
+                time.sleep(sleep_time)
 
-                    time.sleep(sleep_time)
-
-            if not success:
+        if not success:
+            with results_lock:
                 client_results.append((client_id, attempts, round(time.time() - start_time, 3), "FAILED"))
 
-    print("\nРЕЗУЛЬТАТИ ВИТРИВАЛОСТІ БЕКЕНДУ:")
-    print(f"  Сумарна кількість ударів по бекенду (HTTP Hits) : {total_backend_hits}")
+    with start_span("chaos.retry_storm_test", {"strategy": strategy}):
+        with ThreadPoolExecutor(max_workers=num_clients) as executor:
+            futures = [executor.submit(simulate_client, cid) for cid in range(1, num_clients + 1)]
+            for f in futures:
+                f.result()
+
+    print("\n" + "=" * 75)
+    print("РЕЗУЛЬТАТИ ВИТРИВАЛОСТІ БЕКЕНДУ ТА РОЗПОДІЛ ХВИЛЬ (WAVE ANALYSIS):")
+    print("=" * 75)
+
+    attempts_stats: Dict[int, Dict[str, Any]] = {}
+    for h in hits_history:
+        att = h["attempt"]
+        if att not in attempts_stats:
+            attempts_stats[att] = {"count": 0, "times": [], "ok": 0, "fail": 0}
+        attempts_stats[att]["count"] += 1
+        attempts_stats[att]["times"].append(h["time"])
+        if h["ok"]:
+            attempts_stats[att]["ok"] += 1
+        else:
+            attempts_stats[att]["fail"] += 1
+
+    print("ХРОНОЛОГІЯ ЗАЛПІВ НАВАНТАЖЕННЯ (ХВИЛІ РЕТРАЇВ):")
+    for att in sorted(attempts_stats.keys()):
+        stat = attempts_stats[att]
+        min_t = min(stat["times"])
+        max_t = max(stat["times"])
+        status_str = f"{stat['fail']} помилок (503), {stat['ok']} успішних"
+        time_str = f"t ≈ {min_t:4.2f}с" if max_t - min_t < 0.05 else f"t ≈ {min_t:4.2f}с - {max_t:4.2f}с"
+        bar = "█" * stat["count"]
+        print(f"  Спроба {att} ({time_str:18s}) : {bar} ({stat['count']:2d} хітів) -> {status_str}")
+
+    if cb_blocked > 0:
+        print(f"  Circuit Breaker відсік             : {cb_blocked} повторних запитів (зупинено локально без навантаження на сервер)")
+
+    print("-" * 75)
+    print("МЕТРИКИ НАВАНТАЖЕННЯ ДЛЯ SRE ТА FINOPS:")
+    print(f"  Корисна робота клієнтів (норма)    : {num_clients} запитів (по 1 від кожного клієнта)")
+    print(f"  Сумарно ударів по бекенду (Hits)   : {total_backend_hits} запитів")
+    overhead_pct = ((total_backend_hits - num_clients) / num_clients) * 100
+    print(f"  Паразитний оверхед від ретраїв     : +{overhead_pct:.0f}% надлишкового трафіку!")
+
     if strategy == "naive":
-        print("  [АНАЛІЗ SRE] Синхронні повтори без Jitter створили Thundering Herd!")
-        print("  Бекенд отримав надмірний шквал ударів у пік відновлення.")
+        print("\n  [АНАЛІЗ SRE: ЧОМУ ВИНИКЛА КАТАСТРОФА THUNDERING HERD]")
+        print("  1. 10 клієнтів × 4 спроби = 40 запитів замість 10 потрібних.")
+        print("  2. Детерміновані затримки (0.3с, 0.6с, 1.2с) змусили клієнтів бити в ОДНУ мілісекунду.")
+        print("  3. Сервер, який намагався піднятися, отримував синхронні залпи по 10 RPS кожні пів секунди.")
     else:
-        print("  [АНАЛІЗ SRE] Circuit Breaker скинув навантаження, а Full Jitter згладив піки.")
-        print(f"  Кількість запитів скоротилася майже вдвічі без втрати якості!")
+        print("\n  [АНАЛІЗ SRE: ЯК СПРАЦЮВАВ ЗАХИСТ RESILIENCE]")
+        print("  1. Full Jitter розсіяв затримки по осі часу, ліквідувавши синхронні резонансні піки.")
+        print(f"  2. Circuit Breaker розімкнув коло після 3 помилок і відсік {cb_blocked} зайвих запитів (Fail-Fast).")
     print("=" * 75)
 
 
@@ -289,7 +353,7 @@ def run_spot_experiment(total_trials: int = 1000, checkpoint_interval: int = 200
                             "status": "in_progress"
                         }, f, indent=2)
 
-            time.sleep(0.01)
+            time.sleep(0.035)
 
         print(f"\n[SUCCESS] Усі {total_trials} траєкторій обчислено успішно!")
         if os.path.exists(_CHECKPOINT_FILE):
@@ -417,14 +481,17 @@ def main():
 
     args = parser.parse_args()
 
-    if args.scenario == "poison-pill":
-        run_poison_pill_experiment(protect_with_dlq=args.protect)
-    elif args.scenario == "retry-storm":
-        run_retry_storm_experiment(strategy=args.strategy)
-    elif args.scenario == "spot":
-        run_spot_experiment(total_trials=args.trials, checkpoint_interval=args.checkpoint_interval)
-    elif args.scenario == "latency":
-        run_latency_experiment(samples=args.samples, chaos_pct=args.chaos_pct)
+    try:
+        if args.scenario == "poison-pill":
+            run_poison_pill_experiment(protect_with_dlq=args.protect)
+        elif args.scenario == "retry-storm":
+            run_retry_storm_experiment(strategy=args.strategy)
+        elif args.scenario == "spot":
+            run_spot_experiment(total_trials=args.trials, checkpoint_interval=args.checkpoint_interval)
+        elif args.scenario == "latency":
+            run_latency_experiment(samples=args.samples, chaos_pct=args.chaos_pct)
+    finally:
+        flush_telemetry()
 
 if __name__ == "__main__":
     main()

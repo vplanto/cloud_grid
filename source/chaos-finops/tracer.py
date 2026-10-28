@@ -50,7 +50,10 @@ except ImportError:
     OTLPSpanExporter = None
 
 
+import atexit
+
 _TRACER = None
+_PROVIDER = None
 _PROPAGATOR = TraceContextTextMapPropagator() if _HAS_OTEL else None
 
 
@@ -59,24 +62,30 @@ def init_tracer(service_name: str = "monte-carlo-worker",
     """
     Ініціалізує TracerProvider з OTLP експортером у Jaeger або ConsoleSpanExporter.
     """
-    global _TRACER
+    global _TRACER, _PROVIDER
 
     if not _HAS_OTEL:
         logger.warning("OpenTelemetry SDK не встановлено. Використовується вбудований Fallback-трейсер.")
         _TRACER = FallbackTracer(service_name)
         return _TRACER
 
-    otlp_endpoint = endpoint or os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+    otlp_endpoint = endpoint or os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4317")
     resource = Resource.create({"service.name": service_name, "environment": "production"})
     provider = TracerProvider(resource=resource)
 
     exporter = None
     if OTLPSpanExporter and otlp_endpoint:
         try:
-            # Для gRPC ендпоінт зазвичай localhost:4317 (без http://) або insecure=True
             insecure = not otlp_endpoint.startswith("https://")
-            exporter = OTLPSpanExporter(endpoint=otlp_endpoint, insecure=insecure)
-            logger.info("OpenTelemetry OTLP експортер підключено до %s", otlp_endpoint)
+            is_grpc = "grpc" in getattr(OTLPSpanExporter, "__module__", "")
+            if is_grpc:
+                endpoint_clean = otlp_endpoint.replace("http://", "").replace("https://", "")
+                exporter = OTLPSpanExporter(endpoint=endpoint_clean, insecure=insecure)
+                logger.info("OpenTelemetry OTLP gRPC експортер підключено до %s", endpoint_clean)
+            else:
+                endpoint_url = otlp_endpoint if otlp_endpoint.startswith("http") else f"http://{otlp_endpoint}"
+                exporter = OTLPSpanExporter(endpoint=endpoint_url)
+                logger.info("OpenTelemetry OTLP HTTP експортер підключено до %s", endpoint_url)
         except Exception as e:
             logger.warning("Не вдалося підключити OTLP експортер (%s). Використовуємо ConsoleSpanExporter.", e)
             exporter = ConsoleSpanExporter()
@@ -87,8 +96,32 @@ def init_tracer(service_name: str = "monte-carlo-worker",
     processor = BatchSpanProcessor(exporter)
     provider.add_span_processor(processor)
     trace.set_tracer_provider(provider)
+    _PROVIDER = provider
     _TRACER = trace.get_tracer(service_name)
+    atexit.register(flush_telemetry)
     return _TRACER
+
+
+def flush_telemetry(timeout_sec: float = 2.0):
+    """Примусово скидає буферизовані спани в OTLP експортер перед виходом."""
+    global _PROVIDER
+    if _PROVIDER and hasattr(_PROVIDER, "force_flush"):
+        try:
+            _PROVIDER.force_flush(int(timeout_sec * 1000))
+        except Exception as e:
+            logger.debug("Помилка force_flush: %s", e)
+    time.sleep(0.5)
+
+
+def mark_span_error(span: Any, message: str = "Error"):
+    """Позначає спан як аварійний (статус ERROR для підсвічування червоним у Jaeger UI)."""
+    if span is None:
+        return
+    if Status and StatusCode and hasattr(span, "set_status"):
+        span.set_status(Status(StatusCode.ERROR, message))
+    if hasattr(span, "set_attribute"):
+        span.set_attribute("error", True)
+        span.set_attribute("exception.type", message)
 
 
 def get_tracer(service_name: str = "monte-carlo-worker") -> Any:
