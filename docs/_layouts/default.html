@@ -249,6 +249,26 @@
     .highlight .vg { color: #008080 }
     .highlight .vi { color: #008080 }
     .highlight .il { color: #009999 }
+    .markdown-body details {
+      margin: 1rem 0;
+      padding: 0.75rem 1.1rem;
+      background-color: #f6f8fa;
+      border: 1px solid #d0d7de;
+      border-left: 4px solid #0969da;
+      border-radius: 6px;
+    }
+
+    .markdown-body details > summary {
+      cursor: pointer;
+      font-weight: 600;
+      color: #0969da;
+    }
+
+    .markdown-body details[open] > summary {
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid #d0d7de;
+    }
   </style>
 
   <script>
@@ -336,7 +356,26 @@
       });
 
       // Запускаємо рендер
-      mermaid.run();
+      const renderVisibleMermaid = (root) => {
+        const nodes = Array.from(root.querySelectorAll('.mermaid')).filter((el) => {
+          if (el.getAttribute('data-processed') === 'true') return false;
+          const closedParent = el.closest('details:not([open])');
+          return !closedParent;
+        });
+        if (nodes.length > 0) {
+          mermaid.run({ nodes });
+        }
+      };
+
+      renderVisibleMermaid(document);
+
+      document.querySelectorAll('details').forEach((detailsEl) => {
+        detailsEl.addEventListener('toggle', () => {
+          if (detailsEl.open) {
+            renderVisibleMermaid(detailsEl);
+          }
+        });
+      });
     });
   </script>
 </body>
